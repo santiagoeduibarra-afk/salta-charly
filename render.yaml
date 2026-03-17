@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: salta-charly-backend
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: SUPABASE_URL
+        value: https://eebmkgkuwpnqgublhkal.supabase.co
+      - key: SUPABASE_KEY
+        value: sb_publishable_8gWuo2HOVJp68me-xvtuDw_b3XVesZq

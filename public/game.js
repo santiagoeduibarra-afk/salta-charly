@@ -28,11 +28,11 @@ function generateCharlyCode() {
     return word1 + word2;
 }
 
-function createPinkButton(scene, x, y, width, height, textStr, callback) {
+function createPinkButton(scene, x, y, width, height, textStr, callback, bgColor = 0xff69b4, textColor = '#FFFF00') {
     const btnContainer = scene.add.container(x, y);
-    const bg = scene.add.rectangle(0, 0, width, height, 0xff69b4);
+    const bg = scene.add.rectangle(0, 0, width, height, bgColor);
     const txt = scene.add.text(0, 0, textStr, { 
-        fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center' 
+        fontSize: '14px', fontFamily: '"Press Start 2P"', color: textColor, align: 'center' 
     }).setOrigin(0.5);
     btnContainer.add([bg, txt]);
     btnContainer.setSize(width, height);
@@ -58,7 +58,7 @@ class BootScene extends Phaser.Scene {
         this.load.audio('ufo_away', 'sounds/ufoaway.mp3'); 
         this.load.audio('moo_sound', 'sounds/mooo.mp3'); 
         
-        for (let i = 1; i <= 13; i++) {
+        for (let i = 1; i <= 27; i++) {
             this.load.audio(`audio${i}`, `sounds/audio${i}.mp3`);
         }
         
@@ -116,7 +116,15 @@ class BootScene extends Phaser.Scene {
         const loadingDiv = document.getElementById('loading');
         if (loadingDiv) loadingDiv.style.display = 'none';
 
-        this.scene.start('MenuScene');
+        // Check for room in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomToJoin = urlParams.get('room');
+        if (roomToJoin) {
+            gameState.currentRoom = roomToJoin.toLowerCase();
+            this.scene.start('LobbyScene');
+        } else {
+            this.scene.start('MenuScene');
+        }
     }
 }
 
@@ -125,6 +133,13 @@ class MenuScene extends Phaser.Scene {
     create() {
         this.cameras.main.setBackgroundColor('#87CEEB');
         gameState.currentRoom = null; 
+
+        // Fix Audio for Mobile
+        this.input.on('pointerdown', () => {
+            if (this.sound.context.state === 'suspended') {
+                this.sound.context.resume();
+            }
+        });
         
         try {
             if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
@@ -133,23 +148,23 @@ class MenuScene extends Phaser.Scene {
 
         this.add.text(portraitWidth/2, 200, 'SALTA\nCHARLY', { fontSize: '50px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', stroke: '#ff69b4', strokeThickness: 10 }).setOrigin(0.5);
         
-        // FIX: Botón JUGAR unificado
         createPinkButton(this, portraitWidth/2, 450, 180, 50, 'JUGAR', () => {
             if (this.sound.context.state === 'suspended') { this.sound.context.resume(); }
             if (bgMusic && !bgMusic.isPlaying) { bgMusic.play(); }
             this.scene.start('GameScene');
         });
 
-        // Botón SALAS PRIVADAS unificado
-        createPinkButton(this, portraitWidth/2, 530, 280, 50, 'SALAS PRIVADAS', () => {
-            this.scene.start('RoomsScene');
-        });
+        // "SALAS" button inverted colors
+        createPinkButton(this, portraitWidth/2, 530, 180, 50, 'SALAS', () => {
+            this.scene.start('RoomMenuScene');
+        }, 0xFFFFFF, '#ff69b4');
     }
 }
 
-class RoomsScene extends Phaser.Scene {
-    constructor() { super('RoomsScene'); }
+class RoomMenuScene extends Phaser.Scene {
+    constructor() { super('RoomMenuScene'); }
     create() {
+        if (socket && !socket.connected) { socket.connect(); }
         console.log("Estado del Socket:", socket ? socket.connected : "No inicializado aún");
         this.cameras.main.setBackgroundColor('#87CEEB');
 
@@ -173,7 +188,7 @@ class RoomsScene extends Phaser.Scene {
             }
             
             socket.once('roomCreated', (code) => {
-                this.scene.start('GameScene', { room: code, isHost: true });
+                this.scene.start('LobbyScene', { room: code, isHost: true });
             });
             
             socket.emit('createRoom', roomCode);
@@ -245,16 +260,18 @@ class LobbyScene extends Phaser.Scene {
             this.scene.start('GameScene');
         });
 
-        createPinkButton(this, portraitWidth/2, 450, 200, 50, 'COPIAR LINK', () => {
+        createPinkButton(this, portraitWidth/2, 450, 240, 50, 'COMPARTIR LINK', () => {
             if (navigator.clipboard) {
-                navigator.clipboard.writeText(`¡Sumate a mi sala en Salta Charly! Código: ${gameState.currentRoom.toUpperCase()}`);
+                const url = window.location.href.split('?')[0] + '?room=' + gameState.currentRoom;
+                navigator.clipboard.writeText(url).then(() => {
+                    alert('¡Link de invitación copiado!');
+                });
             }
         });
 
-        createPinkButton(this, portraitWidth/2, 600, 180, 50, 'SALIR', () => {
+        createPinkButton(this, portraitWidth/2, 550, 180, 50, 'SALIR', () => {
             if (socket) socket.disconnect();
-            socket = null;
-            this.scene.start('RoomsScene');
+            this.scene.start('RoomMenuScene');
         });
     }
 }
@@ -683,8 +700,13 @@ class GameScene extends Phaser.Scene {
         const px = peace.x;
         const py = peace.y;
         
-        const randomAudio = Phaser.Math.Between(1, 13);
-        try { this.sound.play(`audio${randomAudio}`); } catch(e) {}
+        // Randomized sound selector (1 to 27, no repeat)
+        let nextAudio;
+        do {
+            nextAudio = Phaser.Math.Between(1, 27);
+        } while (nextAudio === this.lastPeaceAudio);
+        this.lastPeaceAudio = nextAudio;
+        try { this.sound.play('audio' + nextAudio); } catch(e) {}
         
         peace.destroy(); 
         
@@ -991,6 +1013,17 @@ class GameOverScene extends Phaser.Scene {
         
         this.domMenu = this.add.dom(portraitWidth/2, portraitHeight/2).createFromHTML(domHTML);
 
+        const nameIn = document.getElementById('nameIn');
+        if (nameIn) {
+            nameIn.addEventListener('blur', () => {
+                // Fix for mobile keyboard scrolling issue
+                const gameContainer = document.getElementById('game-container');
+                if (gameContainer) {
+                    gameContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            });
+        }
+
         document.getElementById('saveBtn').onclick = async () => {
             const btn = document.getElementById('saveBtn');
             const name = document.getElementById('nameIn').value.toUpperCase() || 'ANON';
@@ -1151,12 +1184,13 @@ const config = {
     height: portraitHeight,
     parent: 'game-container',
     backgroundColor: '#87CEEB',
-    dom: { createContainer: true },
+    dom: {
+        createContainer: true
+    },
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
-    physics: { default: 'arcade' },
-    scene: [BootScene, MenuScene, RoomsScene, LobbyScene, GameScene, GameOverScene]
+    scene: [BootScene, MenuScene, RoomMenuScene, LobbyScene, GameScene, GameOverScene]
 };
 const game = new Phaser.Game(config);

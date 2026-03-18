@@ -11,6 +11,9 @@ const app = express();
 const server = http.createServer(app);
 
 // Use a fallback for local testing, or environment variables in production
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    console.error('⚠️ ALERTA: Faltan credenciales de Supabase en el entorno. Los puntajes fallarán, pero Sockets seguirá activo.');
+}
 const supabaseUrl = process.env.SUPABASE_URL || 'https://eebmkgkuwpnqgublhkal.supabase.co';
 const supabaseKey = process.env.SUPABASE_KEY || 'sb_publishable_8gWuo2HOVJp68me-xvtuDw_b3XVesZq';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -24,6 +27,10 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/', (req, res) => { 
+    res.status(200).send('Backend de Salta Charly VIVO y escuchando.'); 
+});
 
 app.get('/api/scores', async (req, res) => {
     const { data, error } = await supabase.from('scores').select('*').order('score', { ascending: false }).limit(10);
@@ -131,6 +138,6 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(PORT, () => {
-    console.log(`Server is running! Open http://localhost:${PORT} in your browser.`);
+server.listen(PORT, '0.0.0.0', () => { 
+    console.log(`✅ Servidor levantado en puerto ${PORT}`); 
 });

@@ -148,6 +148,7 @@ class RoomsScene extends Phaser.Scene {
         this.add.text(portraitWidth/2, 100, 'SALAS', { fontSize: '30px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5);
 
         createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
+            console.log('Click en crear sala');
             const newCode = generateCharlyCode();
             gameState.currentRoom = newCode;
             
@@ -165,9 +166,9 @@ class RoomsScene extends Phaser.Scene {
         this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
 
         const domHTML = `
-            <div style="text-align:center; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
-                <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase; margin-bottom: 20px;">
-                <button id="joinBtn" style="padding:15px 30px; background:#ff69b4; color:#FFFF00; border: none; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
+            <div style="text-align:center; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center; pointer-events: none;">
+                <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="pointer-events: auto; padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase; margin-bottom: 20px;">
+                <button id="joinBtn" style="pointer-events: auto; padding:15px 30px; background:#ff69b4; color:#FFFF00; border: none; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
             </div>
         `;
         this.domContainer = this.add.dom(portraitWidth/2, 500).createFromHTML(domHTML);
@@ -368,7 +369,7 @@ class GameScene extends Phaser.Scene {
 
     spawnBanana() {
         const xPos = Phaser.Math.Between(50, portraitWidth - 50);
-        const banana = this.bananas.create(xPos, 1200, 'banana1');
+        const banana = this.bananas.create(xPos, 1000, 'banana1'); 
         banana.setDisplaySize(170, 170); 
         banana.setDepth(15);
         banana.active = true;
@@ -630,7 +631,7 @@ class GameScene extends Phaser.Scene {
 
         if (Phaser.Math.Between(1, 10) <= 4) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
-            const peace = this.peaceItems.create(peaceX, 1200, 'peace');
+            const peace = this.peaceItems.create(peaceX, 1000, 'peace');
             const scaleFactor = 45 / peace.width;
             peace.setScale(scaleFactor);
             peace.setDepth(6);
@@ -1140,6 +1141,7 @@ const config = {
     width: portraitWidth,
     height: portraitHeight,
     parent: 'game-container',
+    backgroundColor: '#87CEEB',
     dom: { createContainer: true },
     scale: {
         mode: Phaser.Scale.FIT,

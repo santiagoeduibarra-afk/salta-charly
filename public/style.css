@@ -1,6 +1,6 @@
 body {
     margin: 0; padding: 0;
-    background-color: #222;
+    background-color: #87CEEB;
     display: flex; justify-content: center; align-items: center;
     height: 100vh; overflow: hidden;
     font-family: 'Press Start 2P', monospace;

@@ -134,9 +134,9 @@ class MenuScene extends Phaser.Scene {
         this.cameras.main.setBackgroundColor('#87CEEB');
         gameState.currentRoom = null; 
 
-        // Fix Audio for Mobile
-        this.input.on('pointerdown', () => {
-            if (this.sound.context.state === 'suspended') {
+        // Fix Audio for Mobile — use .once() so it doesn't interfere with button clicks
+        this.input.once('pointerdown', () => {
+            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') {
                 this.sound.context.resume();
             }
         });

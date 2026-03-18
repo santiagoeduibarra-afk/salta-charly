@@ -1,6 +1,6 @@
 const portraitWidth = 480;
 const portraitHeight = 800;
-const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:3000' : 'https://salta-charly-backend.onrender.com';
+const BACKEND_URL = 'https://salta-charly-backend.onrender.com';
 let gameState = { score: 0, meters: 0, lives: 3, baseSpeed: 450, multiplier: 1, currentRoom: null };
 let bgMusic;
 let socket;
@@ -917,6 +917,14 @@ class GameScene extends Phaser.Scene {
         gameState.lives--;
         this.updateHeartsUI();
 
+        if (gameState.lives <= 0) {
+            this.physics.pause();
+            this.player.setVisible(false);
+            if (bgMusic) bgMusic.stop(); 
+            this.scene.start('GameOverScene');
+            return;
+        }
+
         const popup = this.add.text(player.x, player.y, customText, { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5).setDepth(30);
         this.tweens.add({ targets: popup, y: popup.y - 100, alpha: 0, duration: 1500, onComplete: () => popup.destroy() });
         
@@ -932,17 +940,12 @@ class GameScene extends Phaser.Scene {
             alpha: 0,
             duration: 800,
             onComplete: () => {
-                if (gameState.lives <= 0) {
-                    if (bgMusic) bgMusic.stop(); 
-                    this.scene.start('GameOverScene');
-                } else {
-                    this.player.setAngle(0);
-                    this.player.y = 200; 
-                    this.player.setTexture('charly');
-                    this.player.setDisplaySize(75, 100);
-                    this.player.setAlpha(1);
-                    this.isInvulnerable = false;
-                }
+                this.player.setAngle(0);
+                this.player.y = 200; 
+                this.player.setTexture('charly');
+                this.player.setDisplaySize(75, 100);
+                this.player.setAlpha(1);
+                this.isInvulnerable = false;
             }
         });
     }
@@ -952,19 +955,6 @@ class GameOverScene extends Phaser.Scene {
     constructor() { super('GameOverScene'); }
     create() {
         this.cameras.main.setBackgroundColor('#87CEEB'); 
-        
-        this.bgClouds = this.add.group();
-        for(let i=0; i<6; i++) {
-            let cloud = this.add.sprite(Phaser.Math.Between(0, portraitWidth), Phaser.Math.Between(0, portraitHeight), 'fluffy_cloud');
-            cloud.setScale(Phaser.Math.FloatBetween(1, 3));
-            cloud.setAlpha(Phaser.Math.FloatBetween(0.5, 0.9));
-            cloud.speed = Phaser.Math.FloatBetween(0.5, 2);
-            cloud.setTint(Phaser.Utils.Array.GetRandom([0xFFFFFF, 0xFFB6C1]));
-            this.bgClouds.add(cloud);
-        }
-
-        this.bgCharly = this.add.sprite(portraitWidth/2, -100, 'charly');
-        this.bgCharly.setDisplaySize(75, 100);
         
         const savedName = localStorage.getItem('charlyName') || '';
 
@@ -986,11 +976,14 @@ class GameOverScene extends Phaser.Scene {
         this.domMenu = this.add.dom(portraitWidth/2, portraitHeight/2).createFromHTML(domHTML);
 
         document.getElementById('saveBtn').onclick = async () => {
+            const btn = document.getElementById('saveBtn');
             const name = document.getElementById('nameIn').value.toUpperCase() || 'ANON';
             localStorage.setItem('charlyName', name); 
             
+            btn.innerText = 'GUARDANDO...';
+            
             try {
-                await fetch(`${BACKEND_URL}/api/score`, {
+                const req = await fetch(`${BACKEND_URL}/api/score`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ 
@@ -1001,17 +994,22 @@ class GameOverScene extends Phaser.Scene {
                     })
                 });
                 
+                if (!req.ok) throw new Error('Fetch failed');
+
                 if (gameState.currentRoom && socket) {
                     socket.emit('game_over_request_sync', { room: gameState.currentRoom });
                 }
-            } catch (e) {}
-            this.domMenu.destroy();
-            this.showLeaderboard();
+                
+                this.domMenu.destroy();
+                this.showLeaderboard();
+            } catch (e) {
+                btn.innerText = 'ERROR AL GUARDAR';
+                btn.style.backgroundColor = '#cc0000';
+            }
         };
 
         if (socket) {
             socket.on('force_leaderboard_refresh', () => {
-                // If we are already showing the leaderboard, refresh it
                 if (!this.domMenu.active && this.leaderboardBox) {
                     this.refreshLeaderboardData();
                 }
@@ -1029,21 +1027,7 @@ class GameOverScene extends Phaser.Scene {
     }
 
     update(time, delta) {
-        this.bgCharly.y += 5;
-        this.bgCharly.rotation = Math.sin(time * 0.005) * 0.15;
-        
-        if (this.bgCharly.y > portraitHeight + 150) {
-            this.bgCharly.y = -100;
-            this.bgCharly.x = Phaser.Math.Between(100, portraitWidth - 100);
-        }
-
-        this.bgClouds.getChildren().forEach(cloud => {
-            cloud.y -= cloud.speed;
-            if (cloud.y < -100) {
-                cloud.y = portraitHeight + 100;
-                cloud.x = Phaser.Math.Between(-50, portraitWidth + 50);
-            }
-        });
+        // Obsolete background chars and clouds removed
     }
 
     // FIX: Doble Leaderboard para salas privadas usando Promise.all

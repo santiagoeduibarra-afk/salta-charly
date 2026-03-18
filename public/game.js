@@ -3,7 +3,14 @@ const portraitHeight = 800;
 const BACKEND_URL = 'https://salta-charly-backend.onrender.com';
 let gameState = { score: 0, meters: 0, lives: 3, baseSpeed: 450, multiplier: 1, currentRoom: null };
 let bgMusic;
-let socket;
+const socket = io(BACKEND_URL);
+
+socket.on('connect', () => {
+    console.log('✅ Socket conectado exitosamente al Backend:', socket.id);
+});
+socket.on('connect_error', (error) => {
+    console.error('❌ Error de conexión del Socket:', error.message);
+});
 let otherPlayers = {};
 
 const charlyWords = [
@@ -46,7 +53,7 @@ class BootScene extends Phaser.Scene {
         // FIX: Cambio de son.wav a song.mp3
         this.load.audio('bgm', 'sounds/song.mp3');
         this.load.audio('splash', 'sounds/splash.mp3');
-        this.load.audio('fail_sound', 'sounds/fail.mp3');
+        // this.load.audio('fail_sound', 'sounds/fail.mp3');
         this.load.audio('ufo_sound', 'sounds/ufo.mp3'); 
         this.load.audio('ufo_away', 'sounds/ufoaway.mp3'); 
         this.load.audio('moo_sound', 'sounds/mooo.mp3'); 
@@ -160,7 +167,10 @@ class RoomsScene extends Phaser.Scene {
             const roomCode = newCode;
             gameState.currentRoom = roomCode;
             
-            if (!socket) { socket = io(BACKEND_URL); }
+            if (!socket || !socket.connected) { 
+                alert("Error: No hay conexión con el servidor multijugador."); 
+                return; 
+            }
             
             socket.once('roomCreated', (code) => {
                 this.scene.start('GameScene', { room: code, isHost: true });
@@ -215,7 +225,6 @@ class LobbyScene extends Phaser.Scene {
         const playersText = this.add.text(portraitWidth/2, 180, 'JUGADORES: 1', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
 
         // Socket logic 
-        if (!socket) { socket = io(BACKEND_URL); }
         socket.emit('join_room', { room: gameState.currentRoom });
         
         const updatePlayers = (data) => {

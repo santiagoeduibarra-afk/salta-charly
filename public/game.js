@@ -329,13 +329,18 @@ class RoomMenuScene extends Phaser.Scene {
             showPromptModal(this, 'NOMBRE DE\nLA SALA:', '', (roomName) => {
                 if (!roomName || roomName.trim() === '') return;
                 const cleanName = roomName.trim().toLowerCase();
-                // confirmMode = true: asks PIN twice
-                showNumpad(this, 'ELIGE UN\nPIN (4 DÍGITOS):', (pin) => {
-                    if (!socket || !socket.connected) { showModal(this, 'SIN CONEXIÓN\nAL SERVIDOR.'); return; }
-                    gameState.currentRoom = cleanName;
-                    socket.once('roomCreated', () => { this.scene.start('LobbyScene', { isHost: true }); });
+                showNumpad(this, 'ELIGE UN\nPIN (4 DIGITOS):', (pin) => {
+                    if (!socket || !socket.connected) { showModal(this, 'SIN CONEXION\nAL SERVIDOR.'); return; }
+                    // REQ 2: roomError = name already taken
+                    const onError = (msg) => { showModal(this, msg); };
+                    socket.once('roomError', onError);
+                    socket.once('roomCreated', (code) => {
+                        socket.off('roomError', onError);
+                        gameState.currentRoom = code;
+                        this.scene.start('LobbyScene', { isHost: true });
+                    });
                     socket.emit('createRoom', { roomName: cleanName, roomPin: pin });
-                }, null, true); // true = double-confirm mode
+                }, null, true);
             });
         });
 
@@ -492,7 +497,13 @@ class GameScene extends Phaser.Scene {
         this.updateHeartsUI();
         
         if (gameState.currentRoom) {
-            this.add.text(portraitWidth/2, 15, `SALA: ${gameState.currentRoom.toUpperCase()}`, { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5).setDepth(30);
+            // REQ 5: Sala badge at BOTTOM-CENTER — pink bar, white text, never overlaps gameplay
+            const badgeY = this.cameras.main.height - 30;
+            this.add.rectangle(portraitWidth/2, badgeY, 320, 40, 0xff69b4)
+                .setOrigin(0.5).setScrollFactor(0).setDepth(100);
+            this.add.text(portraitWidth/2, badgeY, 'SALA: ' + gameState.currentRoom.toUpperCase(), {
+                fontSize: '11px', fontFamily: '"Press Start 2P", Courier', color: '#FFFFFF'
+            }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
         }
 
         this.meterText = this.add.text(20, 30, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setDepth(30);
@@ -518,7 +529,8 @@ class GameScene extends Phaser.Scene {
             }, callbackScope: this, loop: true });
         }
 
-        this.time.addEvent({ delay: 2200, callback: this.spawnObstacles, callbackScope: this, loop: true });
+        // REQ 4: +30% spawn interval for peace signs to let audio finish (2200 → 2860ms)
+        this.time.addEvent({ delay: 2860, callback: this.spawnObstacles, callbackScope: this, loop: true });
         this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
         
         this.time.addEvent({ delay: 60000, callback: () => {
@@ -683,6 +695,12 @@ class GameScene extends Phaser.Scene {
             return; 
         }
 
+        // REQ 3: Clear Airspace — destroy all active obstacles before UFO event
+        [...this.pools.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
+        [...this.cows.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
+        [...this.peaceItems.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
+        [...this.bananas.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
+
         this.ufoActive = true;
         this.ufo = this.physics.add.sprite(this.player.x, -100, 'ufo1'); 
         this.ufo.setDepth(5); 
@@ -819,7 +837,8 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacles() {
-        if (this.ufoActive) return;
+        // REQ 3: Don't spawn if UFO is active OR pending (Clear Airspace)
+        if (this.ufoActive || this.pendingUfo) return;
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
 

@@ -51,7 +51,10 @@ app.post('/api/scores', async (req, res) => {
     if (!playerName || typeof score !== 'number') return res.status(400).json({ error: 'Invalid input' });
     
     const cleanName = playerName.substring(0, 10).toUpperCase();
-    const cleanRoom = roomName ? roomName.trim().toLowerCase() : null;
+    // Accept both roomName and room_name from client for safety
+    const cleanRoom = (roomName || req.body.room_name) ? (roomName || req.body.room_name).trim().toLowerCase() : null;
+    
+    console.log(`💾 Saving score: ${cleanName} | ${score}pts | room: ${cleanRoom || 'global'}`);
     
     const { data, error } = await supabase.from('scores').insert([
         { 
@@ -64,7 +67,7 @@ app.post('/api/scores', async (req, res) => {
     ]).select();
 
     if (error) {
-        console.error("Supabase Error saving score:", error);
+        console.error('❌ Supabase score insert error:', JSON.stringify(error));
         return res.status(500).json({ error: error.message });
     }
     res.json({ success: true, id: data[0].id });
@@ -94,14 +97,23 @@ io.on('connection', (socket) => {
         const name = roomName.trim().toLowerCase();
         const pin = String(roomPin).trim();
         
+        // REQ 2: Check if sala name is already taken
+        if (supabase) {
+            const { data: existing } = await supabase.from('rooms')
+                .select('code').eq('code', name).single();
+            if (existing) {
+                socket.emit('roomError', 'NOMBRE EN USO,\nELIGE OTRO.');
+                return;
+            }
+        }
+        
         console.log(`Socket ${socket.id} creating room '${name}' with PIN ${pin}`);
         socket.join(name);
         socket.emit('roomCreated', name);
         
         if (supabase) {
-            // Upsert: if room exists, update pin; if not, create it
             const { error } = await supabase.from('rooms')
-                .upsert([{ code: name, name: name, pin: pin }], { onConflict: 'code' });
+                .insert([{ code: name, name: name, pin: pin }]);
             if (error) console.error("Supabase Error room creation:", error);
         }
         

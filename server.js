@@ -68,24 +68,37 @@ app.post('/api/score', async (req, res) => {
     res.json({ success: true, id: data[0].id });
 });
 
+app.post('/api/room', async (req, res) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Missing code' });
+    const cleanCode = code.trim().toLowerCase();
+    
+    const { error } = await supabase.from('rooms').insert([{ code: cleanCode }]);
+    
+    res.json({ success: true, code: cleanCode });
+});
+
 // Socket.io Logic
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
-    socket.on('join_room', (data) => {
+    const broadcastRoomPlayers = async (roomCode) => {
+        const sockets = await io.in(roomCode).fetchSockets();
+        io.to(roomCode).emit('room_players_update', { players: sockets.length });
+    };
+
+    socket.on('join_room', async (data) => {
         if (!data || !data.room) return;
         const roomCode = data.room.trim().toLowerCase();
         socket.join(roomCode);
         console.log(`Socket ${socket.id} joined room ${roomCode}`);
         
-        // Broadcast that someone joined (optional, can be used for lobby player counts)
-        io.to(roomCode).emit('room_update', { message: 'A player joined the room.' });
+        await broadcastRoomPlayers(roomCode);
     });
 
     socket.on('game_state_update', (data) => {
         if (!data || !data.room) return;
         const roomCode = data.room.trim().toLowerCase();
-        // Broadcast the state (e.g. { name: 'Player', meters: 150 }) to everyone else in the room
         socket.to(roomCode).emit('game_state_update', data);
     });
 
@@ -93,8 +106,16 @@ io.on('connection', (socket) => {
         if (!data || !data.room) return;
         const roomCode = data.room.trim().toLowerCase();
         console.log(`Triggering leaderboard refresh for room ${roomCode}`);
-        // Tell everyone in the room to refresh their leaderboards
         io.to(roomCode).emit('force_leaderboard_refresh');
+    });
+
+    socket.on('disconnecting', async () => {
+        for (const room of socket.rooms) {
+            if (room !== socket.id) {
+                const sockets = await io.in(room).fetchSockets();
+                io.to(room).emit('room_players_update', { players: Math.max(0, sockets.length - 1) });
+            }
+        }
     });
 
     socket.on('disconnect', () => {

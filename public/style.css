@@ -10,10 +10,14 @@ body {
 #game-container {
     position: relative;
     width: 480px; height: 800px;
-    border: 8px solid #fff;
-    border-radius: 20px;
+    max-width: 100vw;
+    max-height: 100vh;
+    border: none;
     background-color: #87CEEB; /* Sky Blue */
     overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 /* Ensure the leaderboard/input container has NO black background */

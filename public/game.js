@@ -21,6 +21,24 @@ function generateCharlyCode() {
     return word1 + word2;
 }
 
+function createPinkButton(scene, x, y, width, height, textStr, callback) {
+    const btnContainer = scene.add.container(x, y);
+    const bg = scene.add.rectangle(0, 0, width, height, 0xff69b4);
+    const txt = scene.add.text(0, 0, textStr, { 
+        fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center' 
+    }).setOrigin(0.5);
+    btnContainer.add([bg, txt]);
+    btnContainer.setSize(width, height);
+    btnContainer.setInteractive();
+    btnContainer.on('pointerdown', () => {
+        btnContainer.setScale(0.95);
+        if (callback) callback();
+    });
+    btnContainer.on('pointerup', () => btnContainer.setScale(1));
+    btnContainer.on('pointerout', () => btnContainer.setScale(1));
+    return btnContainer;
+}
+
 class BootScene extends Phaser.Scene {
     constructor() { super('BootScene'); }
     
@@ -88,6 +106,9 @@ class BootScene extends Phaser.Scene {
             this.anims.create({ key: 'cow_fly', frames: [{ key: 'vaca1' }, { key: 'vaca2' }], frameRate: 10, repeat: -1 });
         }
 
+        const loadingDiv = document.getElementById('loading');
+        if (loadingDiv) loadingDiv.style.display = 'none';
+
         this.scene.start('MenuScene');
     }
 }
@@ -105,24 +126,15 @@ class MenuScene extends Phaser.Scene {
 
         this.add.text(portraitWidth/2, 200, 'SALTA\nCHARLY', { fontSize: '50px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', stroke: '#ff69b4', strokeThickness: 10 }).setOrigin(0.5);
         
-        // FIX: Botón JUGAR (Texto Blanco, Borde Amarillo + Sombra para legibilidad)
-        const playBtn = this.add.text(portraitWidth/2, 450, 'JUGAR', { 
-            fontSize: '20px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', backgroundColor: '#ff69b4', padding: { x: 30, y: 15 }, stroke: '#FFFF00', strokeThickness: 4, align: 'center' 
-        }).setOrigin(0.5).setInteractive();
-        playBtn.setShadow(2, 2, '#333333', 0, false, true); // Sombra para destacar
-        
-        playBtn.on('pointerdown', () => {
+        // FIX: Botón JUGAR unificado
+        createPinkButton(this, portraitWidth/2, 450, 180, 50, 'JUGAR', () => {
             if (this.sound.context.state === 'suspended') { this.sound.context.resume(); }
             if (bgMusic && !bgMusic.isPlaying) { bgMusic.play(); }
             this.scene.start('GameScene');
         });
 
-        // Botón SALAS PRIVADAS
-        const roomsBtn = this.add.text(portraitWidth/2, 550, 'SALAS PRIVADAS', { 
-            fontSize: '16px', fontFamily: '"Press Start 2P"', color: '#fff', backgroundColor: '#333', padding: { x: 20, y: 15 }, stroke: '#ff69b4', strokeThickness: 2, align: 'center' 
-        }).setOrigin(0.5).setInteractive();
-        
-        roomsBtn.on('pointerdown', () => {
+        // Botón SALAS PRIVADAS unificado
+        createPinkButton(this, portraitWidth/2, 530, 280, 50, 'SALAS PRIVADAS', () => {
             this.scene.start('RoomsScene');
         });
     }
@@ -135,16 +147,15 @@ class RoomsScene extends Phaser.Scene {
 
         this.add.text(portraitWidth/2, 100, 'SALAS', { fontSize: '30px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5);
 
-        // FIX: Botón CREAR SALA (Texto Blanco, Borde Amarillo + Sombra)
-        const createBtn = this.add.text(portraitWidth/2, 250, 'CREAR SALA NUEVA', { 
-            fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', backgroundColor: '#ff69b4', padding: { x: 15, y: 15 }, stroke: '#FFFF00', strokeThickness: 4
-        }).setOrigin(0.5).setInteractive();
-        createBtn.setShadow(2, 2, '#333333', 0, false, true);
-
-        createBtn.on('pointerdown', () => {
+        createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
             const newCode = generateCharlyCode();
             gameState.currentRoom = newCode;
-            this.scene.start('LobbyScene');
+            fetch(`${BACKEND_URL}/api/room`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: newCode })
+            }).then(() => this.scene.start('LobbyScene'))
+              .catch(() => this.scene.start('LobbyScene'));
         });
 
         this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
@@ -152,7 +163,7 @@ class RoomsScene extends Phaser.Scene {
         const domHTML = `
             <div style="text-align:center;">
                 <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; margin-bottom: 15px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase;"><br>
-                <button id="joinBtn" style="padding:15px 30px; background:#333; color:#fff; border: 2px solid #ff69b4; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
+                <button id="joinBtn" style="padding:15px 30px; background:#ff69b4; color:#FFFF00; border: none; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
             </div>
         `;
         this.domContainer = this.add.dom(portraitWidth/2, 500).createFromHTML(domHTML);
@@ -167,8 +178,9 @@ class RoomsScene extends Phaser.Scene {
             }
         };
 
-        const backBtn = this.add.text(portraitWidth/2, 700, 'VOLVER', { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#fff', backgroundColor: '#333', padding: { x: 10, y: 10 } }).setOrigin(0.5).setInteractive();
-        backBtn.on('pointerdown', () => this.scene.start('MenuScene'));
+        createPinkButton(this, portraitWidth/2, 700, 160, 50, 'VOLVER', () => {
+            this.scene.start('MenuScene');
+        });
     }
 }
 
@@ -184,46 +196,45 @@ class LobbyScene extends Phaser.Scene {
         box.strokeRoundedRect(30, 150, portraitWidth - 60, 400, 16);
 
         this.add.text(portraitWidth/2, 80, 'LOBBY PRIVADO', { fontSize: '20px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setOrigin(0.5);
-        this.add.text(portraitWidth/2, 120, `SALA: ${gameState.currentRoom.toUpperCase()}`, { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
-
-        this.add.text(portraitWidth/2, 190, 'TOP SCORERS DE LA SALA', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#ff69b4' }).setOrigin(0.5);
         
-        this.add.text(portraitWidth/2, 250, '1. ESPERANDO JUGADORES...', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#999' }).setOrigin(0.5);
+        // Prominent Code Display
+        this.add.text(portraitWidth/2, 130, `${gameState.currentRoom.toUpperCase()}`, { fontSize: '26px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', backgroundColor: '#333', padding: { x: 20, y: 10 } }).setOrigin(0.5);
 
-        // Socket logic
-        if (!socket) {
-            socket = io(BACKEND_URL);
-        }
-        
+        // Dynamic player count
+        const playersText = this.add.text(portraitWidth/2, 180, 'JUGADORES: 1', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+
+        // Socket logic 
+        if (!socket) { socket = io(BACKEND_URL); }
         socket.emit('join_room', { room: gameState.currentRoom });
         
-        // When someone joins or state changes, we could update UI here, but mostly we rely on the host starting the game.
-        socket.on('room_update', (data) => {
-            console.log(data.message);
+        const updatePlayers = (data) => {
+            if (data && data.players) {
+                playersText.setText(`CONECTADOS: ${data.players}`);
+            }
+        };
+        socket.on('room_players_update', updatePlayers);
+
+        this.events.on('shutdown', () => {
+            socket.off('room_players_update', updatePlayers);
         });
 
-        const copyBtn = this.add.text(portraitWidth/2, 500, 'COPIAR LINK INVITACIÓN', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333', textDecoration: 'underline' }).setOrigin(0.5).setInteractive();
-        copyBtn.on('pointerdown', () => {
-            copyBtn.setText('¡COPIADO!');
-            copyBtn.setColor('#ff69b4');
-            this.time.delayedCall(2000, () => { copyBtn.setText('COPIAR LINK INVITACIÓN'); copyBtn.setColor('#333'); });
-        });
-
-        // FIX: Botón SALTAR (Texto Blanco, Borde Amarillo + Sombra)
-        const playBtn = this.add.text(portraitWidth/2, 630, '¡SALTAR!', { 
-            fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', backgroundColor: '#ff69b4', padding: { x: 30, y: 20 }, stroke: '#FFFF00', strokeThickness: 5, align: 'center' 
-        }).setOrigin(0.5).setInteractive();
-        playBtn.setShadow(2, 2, '#333333', 0, false, true);
-        
-        playBtn.on('pointerdown', () => {
+        // Add pink buttons
+        createPinkButton(this, portraitWidth/2, 350, 240, 50, 'EMPEZAR JUEGO', () => {
+            if (this.sound.context.state === 'suspended') { this.sound.context.resume(); }
+            if (bgMusic && !bgMusic.isPlaying) { bgMusic.play(); }
             this.scene.start('GameScene');
         });
 
-        const backBtn = this.add.text(portraitWidth/2, 730, 'SALIR DE LA SALA', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#fff', backgroundColor: '#333', padding: { x: 10, y: 10 } }).setOrigin(0.5).setInteractive();
-        backBtn.on('pointerdown', () => {
+        createPinkButton(this, portraitWidth/2, 450, 200, 50, 'COPIAR LINK', () => {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(`¡Sumate a mi sala en Salta Charly! Código: ${gameState.currentRoom.toUpperCase()}`);
+            }
+        });
+
+        createPinkButton(this, portraitWidth/2, 600, 180, 50, 'SALIR', () => {
             if (socket) socket.disconnect();
             socket = null;
-            this.scene.start('MenuScene');
+            this.scene.start('RoomsScene');
         });
     }
 }
@@ -1113,6 +1124,10 @@ const config = {
     height: portraitHeight,
     parent: 'game-container',
     dom: { createContainer: true },
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     physics: { default: 'arcade' },
     scene: [BootScene, MenuScene, RoomsScene, LobbyScene, GameScene, GameOverScene]
 };

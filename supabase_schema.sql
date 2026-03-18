@@ -14,5 +14,14 @@ ALTER TABLE public.scores ENABLE ROW LEVEL SECURITY;
 -- Crear política para permitir inserciones públicas (anon)
 CREATE POLICY "Allow public inserts" ON public.scores FOR INSERT WITH CHECK (true);
 
--- Crear política para permitir lecturas públicas (anon)
 CREATE POLICY "Allow public reads" ON public.scores FOR SELECT USING (true);
+
+-- Tabla para almacenar códigos de sala
+CREATE TABLE IF NOT EXISTS public.rooms (
+    code TEXT PRIMARY KEY,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public inserts" ON public.rooms FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public reads" ON public.rooms FOR SELECT USING (true);

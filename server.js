@@ -16,12 +16,12 @@ const supabaseKey = process.env.SUPABASE_KEY || 'sb_publishable_8gWuo2HOVJp68me-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const io = new Server(server, {
-    cors: { origin: "*" }
+    cors: { origin: "*", methods: ['GET', 'POST'] }
 });
 
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -63,6 +63,7 @@ app.post('/api/score', async (req, res) => {
     ]).select();
 
     if (error) {
+        console.error("Supabase Error saving score:", error);
         return res.status(500).json({ error: error.message });
     }
     res.json({ success: true, id: data[0].id });
@@ -94,8 +95,11 @@ io.on('connection', (socket) => {
         console.log(`Socket ${socket.id} created and joined room ${code}`);
         socket.join(code);
         
+        socket.emit('roomCreated', code);
+        
         if (supabase) {
-            await supabase.from('rooms').insert([{ code }]);
+            const { error } = await supabase.from('rooms').insert([{ code }]);
+            if (error) console.error("Supabase Error room creation:", error);
         }
         
         await broadcastRoomPlayers(code);

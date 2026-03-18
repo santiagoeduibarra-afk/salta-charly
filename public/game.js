@@ -159,9 +159,12 @@ class RoomsScene extends Phaser.Scene {
             gameState.currentRoom = roomCode;
             
             if (!socket) { socket = io(BACKEND_URL); }
+            
+            socket.once('roomCreated', (code) => {
+                this.scene.start('GameScene', { room: code, isHost: true });
+            });
+            
             socket.emit('createRoom', roomCode);
-
-            this.scene.start('GameScene', { room: roomCode, isHost: true });
         });
 
         this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);

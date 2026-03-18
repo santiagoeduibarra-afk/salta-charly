@@ -837,8 +837,10 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacles() {
-        // REQ 3: Don't spawn if UFO is active OR pending (Clear Airspace)
-        if (this.ufoActive || this.pendingUfo) return;
+        // Clear Airspace: pause spawning only while UFO is actively approaching/abducting.
+        // Once ufoActive is false OR trippy mode has started, spawning resumes normally.
+        if (this.pendingUfo) return;
+        if (this.ufoActive && !this.isTrippyMode) return;
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
 
@@ -1231,18 +1233,23 @@ class GameOverScene extends Phaser.Scene {
             btn.innerText = 'GUARDANDO...';
             
             try {
+                // Build a clean payload — never send undefined to Supabase
+                const payload = {
+                    playerName: name,
+                    score: gameState.score,
+                    meters: Math.floor(gameState.meters),
+                    room_name: gameState.currentRoom ? gameState.currentRoom.trim().toLowerCase() : null
+                };
                 const req = await fetch(`${BACKEND_URL}/api/scores`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        playerName: name, 
-                        score: gameState.score,
-                        meters: Math.floor(gameState.meters),
-                        roomName: gameState.currentRoom || null
-                    })
+                    body: JSON.stringify(payload)
                 });
                 
-                if (!req.ok) throw new Error('Fetch failed');
+                if (!req.ok) {
+                    const errBody = await req.json().catch(() => ({}));
+                    throw new Error(errBody.error || `HTTP ${req.status}`);
+                }
 
                 if (gameState.currentRoom && socket) {
                     socket.emit('game_over_request_sync', { room: gameState.currentRoom });
@@ -1251,7 +1258,8 @@ class GameOverScene extends Phaser.Scene {
                 this.domMenu.destroy();
                 this.showLeaderboard();
             } catch (e) {
-                btn.innerText = 'ERROR AL GUARDAR';
+                console.error('Score save error:', e.message);
+                btn.innerText = 'ERR: ' + (e.message || 'GUARDAR');
                 btn.style.backgroundColor = '#cc0000';
             }
         };

@@ -116,6 +116,13 @@ class BootScene extends Phaser.Scene {
         const loadingDiv = document.getElementById('loading');
         if (loadingDiv) loadingDiv.style.display = 'none';
 
+        // REQ 1: Universal audio unlock on first touch (runs in BootScene before any other scene)
+        this.input.once('pointerdown', () => {
+            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') {
+                this.sound.context.resume();
+            }
+        });
+
         // Check for room in URL
         const urlParams = new URLSearchParams(window.location.search);
         const roomToJoin = urlParams.get('room');
@@ -175,15 +182,14 @@ class RoomMenuScene extends Phaser.Scene {
 
         createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
             console.log("Clic detectado. Emitiendo createRoom...");
-            console.log('Click en crear sala');
-            
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let newCode = '';
-            for (let i = 0; i < 4; i++) {
-                newCode += chars.charAt(Math.floor(Math.random() * chars.length));
-            }
-            const roomCode = newCode;
+
+            // REQ 6: Charly Garcia-themed room code generator
+            const prefixes = ['SNM', 'CLIC', 'YENDO', 'DINO', 'REZO', 'TREN', 'VACA', 'PISTA', 'OIDO'];
+            const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+            const num = Math.floor(100 + Math.random() * 900); // 3-digit number
+            const roomCode = `${prefix}-${num}`;
             gameState.currentRoom = roomCode;
+            console.log('Código generado:', roomCode);
             
             if (!socket || !socket.connected) { 
                 alert("Error: No hay conexión con el servidor multijugador."); 
@@ -206,6 +212,12 @@ class RoomMenuScene extends Phaser.Scene {
             </div>
         `;
         this.domContainer = this.add.dom(portraitWidth/2, 500).createFromHTML(domHTML);
+
+        // REQ 3: Fix viewport shift when mobile keyboard closes
+        const codeInput = this.domContainer.getChildByID('roomCodeIn');
+        if (codeInput) {
+            codeInput.addEventListener('blur', () => { window.scrollTo(0, 0); });
+        }
 
         document.getElementById('joinBtn').onclick = () => {
             const code = document.getElementById('roomCodeIn').value.trim().toLowerCase();
@@ -235,20 +247,37 @@ class LobbyScene extends Phaser.Scene {
     constructor() { super('LobbyScene'); }
     create() {
         this.cameras.main.setBackgroundColor('#87CEEB');
+        const cx = this.cameras.main.centerX;
 
         const box = this.add.graphics();
         box.fillStyle(0xFFFFFF, 0.9); 
-        box.fillRoundedRect(30, 150, portraitWidth - 60, 400, 16);
+        box.fillRoundedRect(30, 100, portraitWidth - 60, 580, 16);
         box.lineStyle(6, 0xff69b4, 1); 
-        box.strokeRoundedRect(30, 150, portraitWidth - 60, 400, 16);
+        box.strokeRoundedRect(30, 100, portraitWidth - 60, 580, 16);
 
-        this.add.text(portraitWidth/2, 80, 'LOBBY PRIVADO', { fontSize: '20px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setOrigin(0.5);
-        
-        // Prominent Code Display
-        this.add.text(portraitWidth/2, 130, `${gameState.currentRoom.toUpperCase()}`, { fontSize: '26px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', backgroundColor: '#333', padding: { x: 20, y: 10 } }).setOrigin(0.5);
+        // REQ 7: Show room code prominently
+        this.add.text(cx, 60, 'LOBBY PRIVADO', { fontSize: '18px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setOrigin(0.5);
+        this.add.text(cx, 125, `SALA: ${gameState.currentRoom.toUpperCase()}`, { fontSize: '18px', fontFamily: '"Press Start 2P"', color: '#333', backgroundColor: '#FFD700', padding: { x: 14, y: 8 } }).setOrigin(0.5);
 
         // Dynamic player count
-        const playersText = this.add.text(portraitWidth/2, 180, 'JUGADORES: 1', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+        const playersText = this.add.text(cx, 165, 'CONECTADOS: 1', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#555' }).setOrigin(0.5);
+
+        // REQ 7: Show room-specific scores
+        const scoresTitle = this.add.text(cx, 200, 'TOP SALA', { fontSize: '11px', fontFamily: '"Press Start 2P"', color: '#ff69b4' }).setOrigin(0.5);
+        const scoresLoading = this.add.text(cx, 225, 'Cargando...', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#999' }).setOrigin(0.5);
+
+        fetch(`${BACKEND_URL}/api/scores?room=${encodeURIComponent(gameState.currentRoom)}`)
+            .then(r => r.json())
+            .then(data => {
+                scoresLoading.destroy();
+                if (!data || data.length === 0) {
+                    this.add.text(cx, 225, '¡Seé el primero!', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#777' }).setOrigin(0.5);
+                } else {
+                    data.slice(0, 5).forEach((e, i) => {
+                        this.add.text(cx, 225 + (i * 28), `${i+1}. ${e.name} ${e.score}pts`, { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+                    });
+                }
+            }).catch(() => { scoresLoading.setText('Sin datos'); });
 
         // Socket logic 
         socket.emit('join_room', { room: gameState.currentRoom });
@@ -264,23 +293,21 @@ class LobbyScene extends Phaser.Scene {
             socket.off('room_players_update', updatePlayers);
         });
 
-        // Add pink buttons
-        createPinkButton(this, portraitWidth/2, 350, 240, 50, 'EMPEZAR JUEGO', () => {
-            if (this.sound.context.state === 'suspended') { this.sound.context.resume(); }
-            if (bgMusic && !bgMusic.isPlaying) { bgMusic.play(); }
+        createPinkButton(this, cx, 430, 240, 50, 'EMPEZAR JUEGO', () => {
+            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') { this.sound.context.resume(); }
+            if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
+            if (!bgMusic.isPlaying) { try { bgMusic.play(); } catch(e) {} }
             this.scene.start('GameScene');
         });
 
-        createPinkButton(this, portraitWidth/2, 450, 240, 50, 'COMPARTIR LINK', () => {
+        createPinkButton(this, cx, 510, 240, 50, 'COMPARTIR LINK', () => {
             if (navigator.clipboard) {
                 const url = window.location.href.split('?')[0] + '?room=' + gameState.currentRoom;
-                navigator.clipboard.writeText(url).then(() => {
-                    alert('¡Link de invitación copiado!');
-                });
+                navigator.clipboard.writeText(url).then(() => { alert('¡Link de invitación copiado!'); });
             }
         });
 
-        createPinkButton(this, portraitWidth/2, 550, 180, 50, 'SALIR', () => {
+        createPinkButton(this, cx, 590, 180, 50, 'SALIR', () => {
             if (socket) socket.disconnect();
             this.scene.start('RoomMenuScene');
         });
@@ -1029,17 +1056,15 @@ class GameOverScene extends Phaser.Scene {
             </div>
         `;
         
-        this.domMenu = this.add.dom(portraitWidth/2, portraitHeight/2).createFromHTML(domHTML);
+        // REQ 4: Use camera center coordinates to avoid mobile offset
+        const cx = this.cameras.main.centerX;
+        const cy = this.cameras.main.centerY;
+        this.domMenu = this.add.dom(cx, cy).createFromHTML(domHTML);
 
         const nameIn = document.getElementById('nameIn');
         if (nameIn) {
-            nameIn.addEventListener('blur', () => {
-                // Fix for mobile keyboard scrolling issue
-                const gameContainer = document.getElementById('game-container');
-                if (gameContainer) {
-                    gameContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            });
+            // REQ 3: Fix mobile keyboard viewport shift
+            nameIn.addEventListener('blur', () => { window.scrollTo(0, 0); });
         }
 
         document.getElementById('saveBtn').onclick = async () => {
@@ -1153,19 +1178,25 @@ class GameOverScene extends Phaser.Scene {
                     fetch(`${BACKEND_URL}/api/scores`)
                 ]);
                 
-                // Cargar Top Room
+                // Cargar Top Room — purple color to differentiate from global
                 const dataRoom = await resRoom.json();
                 const topRoom = dataRoom.slice(0, 5);
                 topRoom.forEach((e, i) => {
-                    const t = this.add.text(portraitWidth/2, 120 + (i*30), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+                    const t = this.add.text(portraitWidth/2, 120 + (i*30), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#6a0dad' }).setOrigin(0.5);
                     this.leaderboardTexts.push(t);
                 });
                 
-                // Cargar Top Global
+                // Visual separator between sala and global
+                const sep = this.add.graphics();
+                sep.lineStyle(2, 0xff69b4, 0.8);
+                sep.lineBetween(60, 290, portraitWidth - 60, 290);
+                this.leaderboardTexts.push(sep);
+
+                // Cargar Top Global — black color
                 const dataGlobal = await resGlobal.json();
                 const topGlobal = dataGlobal.slice(0, 5);
                 topGlobal.forEach((e, i) => {
-                    const t = this.add.text(portraitWidth/2, 320 + (i*30), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+                    const t = this.add.text(portraitWidth/2, 330 + (i*32), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#222' }).setOrigin(0.5);
                     this.leaderboardTexts.push(t);
                 });
 
@@ -1207,7 +1238,8 @@ const config = {
     },
     scale: {
         mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        orientation: Phaser.Scale.Orientation.PORTRAIT
     },
     physics: { 
         default: 'arcade', 

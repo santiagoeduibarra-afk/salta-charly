@@ -33,12 +33,13 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/scores', async (req, res) => {
-    const { data, error } = await supabase.from('scores').select('*').order('score', { ascending: false }).limit(10);
-
-    if (error) {
-        return res.status(500).json({ error: error.message });
+    const { room } = req.query;
+    let query = supabase.from('scores').select('*').order('score', { ascending: false }).limit(10);
+    if (room && room.trim() !== '') {
+        query = query.eq('room_code', room.trim().toLowerCase());
     }
-    
+    const { data, error } = await query;
+    if (error) { return res.status(500).json({ error: error.message }); }
     res.json(data);
 });
 

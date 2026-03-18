@@ -171,75 +171,119 @@ class MenuScene extends Phaser.Scene {
     }
 }
 
+// ── Phaser Numpad helper ─────────────────────────────────────────────────
+// Draws a 4-digit PIN pad inside a Phaser scene.
+// onDone(pinString) is called when the user presses OK.
+function showNumpad(scene, title, onDone, onCancel) {
+    const cx = scene.cameras.main.centerX;
+    const cy = scene.cameras.main.centerY;
+    const pad = scene.add.container(cx, cy).setDepth(50);
+
+    const bg = scene.add.rectangle(0, 0, 340, 480, 0x222244, 0.97).setStrokeStyle(4, 0xff69b4);
+    const titleTxt = scene.add.text(0, -200, title, { fontSize: '13px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', wordWrap: { width: 300 } }).setOrigin(0.5);
+    const pinDisplay = scene.add.text(0, -145, '_ _ _ _', { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#ff69b4', backgroundColor: '#111', padding: { x: 14, y: 8 } }).setOrigin(0.5);
+    pad.add([bg, titleTxt, pinDisplay]);
+
+    let pin = '';
+    const refresh = () => {
+        const chars = ['_', '_', '_', '_'];
+        for (let i = 0; i < pin.length; i++) chars[i] = pin[i];
+        pinDisplay.setText(chars.join(' '));
+    };
+
+    // Draw 0-9 buttons in 3x4 grid + DEL + OK
+    const layout = [
+        ['1','2','3'],
+        ['4','5','6'],
+        ['7','8','9'],
+        ['DEL','0','OK']
+    ];
+    const btnW = 80, btnH = 55, gapX = 10, gapY = 10;
+    const startX = -((btnW * 3 + gapX * 2) / 2) + btnW / 2;
+    const startY = -90;
+
+    layout.forEach((row, ri) => {
+        row.forEach((label, ci) => {
+            const bx = startX + ci * (btnW + gapX);
+            const by = startY + ri * (btnH + gapY);
+            const isOk = label === 'OK';
+            const isDel = label === 'DEL';
+            const btnBg = scene.add.rectangle(bx, by, btnW, btnH, isOk ? 0xff69b4 : isDel ? 0x884444 : 0x334466)
+                .setStrokeStyle(2, 0xffffff)
+                .setInteractive({ useHandCursor: true });
+            const btnTxt = scene.add.text(bx, by, label, { fontSize: isOk||isDel ? '10px' : '16px', fontFamily: '"Press Start 2P"', color: '#FFFFFF' }).setOrigin(0.5);
+            pad.add([btnBg, btnTxt]);
+
+            btnBg.on('pointerdown', () => {
+                btnBg.setScale(0.92);
+                if (isOk) {
+                    if (pin.length === 4) { pad.destroy(); onDone(pin); }
+                    else { pinDisplay.setColor('#ff0000'); scene.time.delayedCall(400, () => pinDisplay.setColor('#ff69b4')); }
+                } else if (isDel) {
+                    pin = pin.slice(0, -1); refresh();
+                } else {
+                    if (pin.length < 4) { pin += label; refresh(); }
+                }
+            });
+            btnBg.on('pointerup', () => btnBg.setScale(1));
+        });
+    });
+
+    const cancelTxt = scene.add.text(0, 195, '[ CANCELAR ]', { fontSize: '11px', fontFamily: '"Press Start 2P"', color: '#aaa' }).setOrigin(0.5).setInteractive();
+    cancelTxt.on('pointerdown', () => { pad.destroy(); if (onCancel) onCancel(); });
+    pad.add(cancelTxt);
+}
+
 class RoomMenuScene extends Phaser.Scene {
     constructor() { super('RoomMenuScene'); }
     create() {
         if (socket && !socket.connected) { socket.connect(); }
-        console.log("Estado del Socket:", socket ? socket.connected : "No inicializado aún");
         this.cameras.main.setBackgroundColor('#87CEEB');
+        const cx = this.cameras.main.centerX;
 
-        this.add.text(portraitWidth/2, 100, 'SALAS', { fontSize: '30px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5);
+        this.add.text(cx, 120, 'SALAS', { fontSize: '30px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5);
+        this.add.text(cx, 175, 'PRIVADAS', { fontSize: '18px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setOrigin(0.5);
 
-        createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
-            console.log("Clic detectado. Emitiendo createRoom...");
-
-            // REQ 6: Charly Garcia-themed room code generator
-            const prefixes = ['SNM', 'CLIC', 'YENDO', 'DINO', 'REZO', 'TREN', 'VACA', 'PISTA', 'OIDO'];
-            const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
-            const num = Math.floor(100 + Math.random() * 900); // 3-digit number
-            const roomCode = `${prefix}-${num}`;
-            gameState.currentRoom = roomCode;
-            console.log('Código generado:', roomCode);
-            
-            if (!socket || !socket.connected) { 
-                alert("Error: No hay conexión con el servidor multijugador."); 
-                return; 
-            }
-            
-            socket.once('roomCreated', (code) => {
-                this.scene.start('LobbyScene', { room: code, isHost: true });
+        // CREAR SALA
+        createPinkButton(this, cx, 320, 300, 60, 'CREAR SALA', () => {
+            const roomName = window.prompt('Nombre de la sala (p.ej: DINO-742):');
+            if (!roomName || roomName.trim() === '') return;
+            const cleanName = roomName.trim().toLowerCase();
+            showNumpad(this, 'Elige un PIN de 4 dígitos\npara tu sala:', (pin) => {
+                if (!socket || !socket.connected) { alert('Sin conexión al servidor.'); return; }
+                gameState.currentRoom = cleanName;
+                socket.once('roomCreated', (code) => {
+                    this.scene.start('LobbyScene', { isHost: true });
+                });
+                socket.emit('createRoom', { roomName: cleanName, roomPin: pin });
             });
-            
-            socket.emit('createRoom', roomCode);
         });
 
-        this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+        // ENTRAR A SALA
+        createPinkButton(this, cx, 420, 300, 60, 'ENTRAR A SALA', () => {
+            const roomName = window.prompt('Nombre de la sala a la que quieres entrar:');
+            if (!roomName || roomName.trim() === '') return;
+            const cleanName = roomName.trim().toLowerCase();
+            showNumpad(this, `PIN de la sala\n${cleanName.toUpperCase()}:`, (pin) => {
+                if (!socket || !socket.connected) { alert('Sin conexión al servidor.'); return; }
+                gameState.currentRoom = cleanName;
 
-        const domHTML = `
-            <div style="text-align:center; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center; pointer-events: none;">
-                <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="pointer-events: auto; padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase; margin-bottom: 20px;">
-                <button id="joinBtn" style="pointer-events: auto; padding:15px 30px; background:#ff69b4; color:#FFFF00; border: none; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
-            </div>
-        `;
-        this.domContainer = this.add.dom(portraitWidth/2, 500).createFromHTML(domHTML);
+                socket.once('joinedRoom', (code) => {
+                    gameState.currentRoom = code;
+                    this.scene.start('LobbyScene');
+                });
+                socket.once('joinError', (msg) => {
+                    alert('❌ ' + msg);
+                    gameState.currentRoom = null;
+                });
+                socket.emit('joinRoom', { roomName: cleanName, roomPin: pin });
+            });
+        });
 
-        // REQ 3: Fix viewport shift when mobile keyboard closes
-        const codeInput = this.domContainer.getChildByID('roomCodeIn');
-        if (codeInput) {
-            codeInput.addEventListener('blur', () => { window.scrollTo(0, 0); });
-        }
-
-        document.getElementById('joinBtn').onclick = () => {
-            const code = document.getElementById('roomCodeIn').value.trim().toLowerCase();
-            if (code.length > 3) {
-                gameState.currentRoom = code;
-                this.scene.start('LobbyScene');
-            } else {
-                document.getElementById('roomCodeIn').style.borderColor = 'red';
-            }
-        };
-
-        createPinkButton(this, portraitWidth/2, 700, 160, 50, 'VOLVER', () => {
+        // VOLVER
+        createPinkButton(this, cx, 540, 200, 55, 'VOLVER', () => {
             this.scene.start('MenuScene');
-        });
-
-        // Critical: destroy DOM element when leaving this scene
-        // to prevent its container div from blocking clicks in MenuScene
-        this.events.on('shutdown', () => {
-            if (this.domContainer) {
-                this.domContainer.destroy();
-            }
-        });
+        }, 0xFFFFFF, '#ff69b4');
     }
 }
 
@@ -405,8 +449,10 @@ class GameScene extends Phaser.Scene {
 
         this.input.on('pointermove', (pointer) => {
             const isUfoBlocking = this.ufoActive && this.ufo && (this.ufo.state === 'approaching' || this.ufo.state === 'abducting');
-            if (!this.isInvulnerable && !this.isAbducted && !isUfoBlocking && !this.isPushed) { 
-                this.player.x = Phaser.Math.Clamp(pointer.x, 37.5, portraitWidth - 37.5);
+            // Fix 2: Swipe/delta movement instead of absolute teleport
+            if (pointer.isDown && !this.isInvulnerable && !this.isAbducted && !isUfoBlocking && !this.isPushed) { 
+                const dx = pointer.x - pointer.prevPosition.x;
+                this.player.x = Phaser.Math.Clamp(this.player.x + dx, 37.5, portraitWidth - 37.5);
             }
         });
 
@@ -811,8 +857,11 @@ class GameScene extends Phaser.Scene {
         let deltaX = 0;
 
         if (!this.isAbducted && !isUfoBlocking && !this.isPushed) {
-            if (this.cursors.left.isDown) this.player.x -= 6;
-            if (this.cursors.right.isDown) this.player.x += 6;
+            // Guard: cursors is null on mobile (no physical keyboard)
+            if (this.cursors) {
+                if (this.cursors.left.isDown) this.player.x -= 6;
+                if (this.cursors.right.isDown) this.player.x += 6;
+            }
             this.player.x = Phaser.Math.Clamp(this.player.x, 37.5, portraitWidth - 37.5);
             deltaX = this.player.x - this.player.lastX;
         }
@@ -870,6 +919,9 @@ class GameScene extends Phaser.Scene {
         const charlyTop = this.player.y - (this.player.displayHeight / 2);
 
         [...this.pools.getChildren()].forEach(pool => {
+            // Fix 1: Skip objects destroyed this frame (UFO+Pool simultaneous crash fix)
+            if (!pool.active) return;
+
             if (pool.isMoving && !pool.evaluated) {
                 pool.x += pool.moveDir * pool.moveSpeed;
                 const halfWidth = (pool.displayWidth / 2);

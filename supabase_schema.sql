@@ -25,3 +25,13 @@ CREATE TABLE IF NOT EXISTS public.rooms (
 ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public inserts" ON public.rooms FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public reads" ON public.rooms FOR SELECT USING (true);
+
+-- ============================================================
+-- MIGRATION: Agregar columnas name y pin a la tabla rooms
+-- Ejecuta esto en el SQL Editor de Supabase si la tabla ya existe
+-- ============================================================
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS pin VARCHAR(4);
+
+-- Permitir updates (para el UPSERT del backend)
+CREATE POLICY "Allow public updates" ON public.rooms FOR UPDATE USING (true) WITH CHECK (true);

@@ -86,21 +86,48 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('room_players_update', { players: sockets.length });
     };
 
-    socket.on('createRoom', async (roomCode) => {
-        if (!roomCode) return;
-        const code = roomCode.trim().toLowerCase();
+    socket.on('createRoom', async ({ roomName, roomPin }) => {
+        if (!roomName || !roomPin) return;
+        const name = roomName.trim().toLowerCase();
+        const pin = String(roomPin).trim();
         
-        console.log(`Socket ${socket.id} created and joined room ${code}`);
-        socket.join(code);
-        
-        socket.emit('roomCreated', code);
+        console.log(`Socket ${socket.id} creating room '${name}' with PIN ${pin}`);
+        socket.join(name);
+        socket.emit('roomCreated', name);
         
         if (supabase) {
-            const { error } = await supabase.from('rooms').insert([{ code }]);
+            // Upsert: if room exists, update pin; if not, create it
+            const { error } = await supabase.from('rooms')
+                .upsert([{ code: name, name: name, pin: pin }], { onConflict: 'code' });
             if (error) console.error("Supabase Error room creation:", error);
         }
         
-        await broadcastRoomPlayers(code);
+        await broadcastRoomPlayers(name);
+    });
+
+    socket.on('joinRoom', async ({ roomName, roomPin }) => {
+        if (!roomName || !roomPin) return;
+        const name = roomName.trim().toLowerCase();
+        const pin = String(roomPin).trim();
+        
+        if (supabase) {
+            const { data, error } = await supabase.from('rooms')
+                .select('pin').eq('code', name).single();
+            
+            if (error || !data) {
+                socket.emit('joinError', 'Sala no encontrada.');
+                return;
+            }
+            if (data.pin !== pin) {
+                socket.emit('joinError', 'PIN incorrecto.');
+                return;
+            }
+        }
+        
+        socket.join(name);
+        console.log(`Socket ${socket.id} joined room '${name}'`);
+        socket.emit('joinedRoom', name);
+        await broadcastRoomPlayers(name);
     });
 
     socket.on('join_room', async (data) => {
@@ -108,7 +135,6 @@ io.on('connection', (socket) => {
         const roomCode = data.room.trim().toLowerCase();
         socket.join(roomCode);
         console.log(`Socket ${socket.id} joined room ${roomCode}`);
-        
         await broadcastRoomPlayers(roomCode);
     });
 

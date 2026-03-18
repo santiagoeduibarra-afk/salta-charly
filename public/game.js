@@ -134,28 +134,31 @@ class MenuScene extends Phaser.Scene {
         this.cameras.main.setBackgroundColor('#87CEEB');
         gameState.currentRoom = null; 
 
-        // Fix Audio for Mobile — use .once() so it doesn't interfere with button clicks
-        this.input.once('pointerdown', () => {
+        this.add.text(portraitWidth/2, 200, 'SALTA\nCHARLY', { 
+            fontSize: '50px', fontFamily: '"Press Start 2P"', 
+            color: '#FFFF00', align: 'center', 
+            stroke: '#ff69b4', strokeThickness: 10 
+        }).setOrigin(0.5);
+        
+        createPinkButton(this, portraitWidth/2, 450, 180, 50, 'JUGAR', () => {
+            // Unlock audio context on first real user interaction
             if (this.sound && this.sound.context && this.sound.context.state === 'suspended') {
                 this.sound.context.resume();
             }
-        });
-        
-        try {
+            // Start music if not already playing
             if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
-            if (!bgMusic.isPlaying) { bgMusic.play(); }
-        } catch(e) {}
-
-        this.add.text(portraitWidth/2, 200, 'SALTA\nCHARLY', { fontSize: '50px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', stroke: '#ff69b4', strokeThickness: 10 }).setOrigin(0.5);
-        
-        createPinkButton(this, portraitWidth/2, 450, 180, 50, 'JUGAR', () => {
-            if (this.sound.context.state === 'suspended') { this.sound.context.resume(); }
-            if (bgMusic && !bgMusic.isPlaying) { bgMusic.play(); }
+            if (!bgMusic.isPlaying) { try { bgMusic.play(); } catch(e) {} }
             this.scene.start('GameScene');
         });
 
-        // "SALAS" button inverted colors
+        // "SALAS" button — white bg, pink text to distinguish from JUGAR
         createPinkButton(this, portraitWidth/2, 530, 180, 50, 'SALAS', () => {
+            // Unlock audio context on first real user interaction
+            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') {
+                this.sound.context.resume();
+            }
+            if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
+            if (!bgMusic.isPlaying) { try { bgMusic.play(); } catch(e) {} }
             this.scene.start('RoomMenuScene');
         }, 0xFFFFFF, '#ff69b4');
     }
@@ -216,6 +219,14 @@ class RoomMenuScene extends Phaser.Scene {
 
         createPinkButton(this, portraitWidth/2, 700, 160, 50, 'VOLVER', () => {
             this.scene.start('MenuScene');
+        });
+
+        // Critical: destroy DOM element when leaving this scene
+        // to prevent its container div from blocking clicks in MenuScene
+        this.events.on('shutdown', () => {
+            if (this.domContainer) {
+                this.domContainer.destroy();
+            }
         });
     }
 }

@@ -87,6 +87,20 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('room_players_update', { players: sockets.length });
     };
 
+    socket.on('createRoom', async (roomCode) => {
+        if (!roomCode) return;
+        const code = roomCode.trim().toLowerCase();
+        
+        console.log(`Socket ${socket.id} created and joined room ${code}`);
+        socket.join(code);
+        
+        if (supabase) {
+            await supabase.from('rooms').insert([{ code }]);
+        }
+        
+        await broadcastRoomPlayers(code);
+    });
+
     socket.on('join_room', async (data) => {
         if (!data || !data.room) return;
         const roomCode = data.room.trim().toLowerCase();

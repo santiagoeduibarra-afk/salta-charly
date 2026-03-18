@@ -29,7 +29,7 @@ function createPinkButton(scene, x, y, width, height, textStr, callback) {
     }).setOrigin(0.5);
     btnContainer.add([bg, txt]);
     btnContainer.setSize(width, height);
-    btnContainer.setInteractive();
+    btnContainer.setInteractive({ useHandCursor: true });
     btnContainer.on('pointerdown', () => {
         btnContainer.setScale(0.95);
         if (callback) callback();
@@ -149,18 +149,19 @@ class RoomsScene extends Phaser.Scene {
 
         createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
             console.log('Click en crear sala');
-            const newCode = generateCharlyCode();
-            gameState.currentRoom = newCode;
+            
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let newCode = '';
+            for (let i = 0; i < 4; i++) {
+                newCode += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            const roomCode = newCode;
+            gameState.currentRoom = roomCode;
             
             if (!socket) { socket = io(BACKEND_URL); }
-            socket.emit('join_room', { room: newCode });
+            socket.emit('createRoom', roomCode);
 
-            fetch(`${BACKEND_URL}/api/room`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: newCode })
-            }).then(() => this.scene.start('LobbyScene'))
-              .catch(() => this.scene.start('LobbyScene'));
+            this.scene.start('GameScene', { room: roomCode, isHost: true });
         });
 
         this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
@@ -471,7 +472,7 @@ class GameScene extends Phaser.Scene {
         try { this.sound.play('ufo_sound'); } catch(e) {}
         
         this.ufoActive = true;
-        this.ufo = this.add.sprite(this.player.x, -100, 'ufo1'); 
+        this.ufo = this.physics.add.sprite(this.player.x, -100, 'ufo1'); 
         this.ufo.setDepth(5); 
         this.ufo.setScale(0); 
         this.ufo.state = 'approaching'; 
@@ -1137,7 +1138,8 @@ class GameOverScene extends Phaser.Scene {
 }
 
 const config = {
-    type: Phaser.AUTO,
+    type: Phaser.CANVAS,
+    clearBeforeRender: true,
     width: portraitWidth,
     height: portraitHeight,
     parent: 'game-container',

@@ -291,6 +291,7 @@ class GameScene extends Phaser.Scene {
     constructor() { super('GameScene'); }
     
     create() {
+        try {
         gameState.score = 0; 
         gameState.meters = 0;
         gameState.lives = 3;
@@ -310,6 +311,7 @@ class GameScene extends Phaser.Scene {
         this.hasParachute = false;
         this.lastBananaSpawnMeter = 0;
         this.parachuteTimer = null;
+        this.lastPeaceAudio = 0;
 
         this.cameras.main.setBackgroundColor('#87CEEB');
 
@@ -354,7 +356,6 @@ class GameScene extends Phaser.Scene {
                 this.updateOtherPlayersUI();
             });
 
-            // Emit our state every 1 second
             this.time.addEvent({ delay: 1000, callback: () => {
                 const myName = localStorage.getItem('charlyName') || 'ANON';
                 socket.emit('game_state_update', { 
@@ -381,10 +382,16 @@ class GameScene extends Phaser.Scene {
                 this.player.x = Phaser.Math.Clamp(pointer.x, 37.5, portraitWidth - 37.5);
             }
         });
-        this.cursors = this.input.keyboard.createCursorKeys();
+
+        // Guard against null keyboard (mobile devices have no physical keyboard)
+        this.cursors = this.input.keyboard ? this.input.keyboard.createCursorKeys() : null;
         
         this.physics.add.overlap(this.player, this.cows, this.hitCow, null, this);
-        this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this); 
+        this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this);
+
+        } catch (error) {
+            console.error('❌ CRITICAL ERROR en GameScene.create():', error);
+        }
     }
 
     updateOtherPlayersUI() {
@@ -1201,6 +1208,10 @@ const config = {
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    physics: { 
+        default: 'arcade', 
+        arcade: { gravity: { y: 0 }, debug: false } 
     },
     scene: [BootScene, MenuScene, RoomMenuScene, LobbyScene, GameScene, GameOverScene]
 };

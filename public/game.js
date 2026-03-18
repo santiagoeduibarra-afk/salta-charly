@@ -143,11 +143,13 @@ class MenuScene extends Phaser.Scene {
 class RoomsScene extends Phaser.Scene {
     constructor() { super('RoomsScene'); }
     create() {
+        console.log("Estado del Socket:", socket ? socket.connected : "No inicializado aún");
         this.cameras.main.setBackgroundColor('#87CEEB');
 
         this.add.text(portraitWidth/2, 100, 'SALAS', { fontSize: '30px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 6 }).setOrigin(0.5);
 
         createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
+            console.log("Clic detectado. Emitiendo createRoom...");
             console.log('Click en crear sala');
             
             const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -474,6 +476,11 @@ class GameScene extends Phaser.Scene {
         
         try { this.sound.play('ufo_sound'); } catch(e) {}
         
+        if (!this.textures.exists('ufo1')) { 
+            console.error('Falta textura UFO'); 
+            return; 
+        }
+
         this.ufoActive = true;
         this.ufo = this.physics.add.sprite(this.player.x, -100, 'ufo1'); 
         this.ufo.setDepth(5); 

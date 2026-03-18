@@ -56,18 +56,18 @@ class BootScene extends Phaser.Scene {
         }
         
         this.load.image('charly', 'assets/charly.png');
-        this.load.image('pool', 'assets/pool.png');
-        this.load.image('peace', 'assets/peace.png'); 
+        this.load.image('pool', 'assets/POOL.png');
+        this.load.image('peace', 'assets/PEACE.PNG'); 
         
         this.load.image('ufo1', 'assets/ufo1.png');
         this.load.image('ufo2', 'assets/ufo2.png');
         
-        this.load.image('vaca1', 'assets/vaca1.png');
-        this.load.image('vaca2', 'assets/vaca2.png');
+        this.load.image('vaca1', 'assets/VACA1.png');
+        this.load.image('vaca2', 'assets/VACA2.png');
 
-        this.load.image('banana1', 'assets/banana1.png');
-        this.load.image('banana2', 'assets/banana2.png');
-        this.load.image('banana3', 'assets/banana3.png');
+        this.load.image('banana1', 'assets/BANANA1.png');
+        this.load.image('banana2', 'assets/BANANA2.png');
+        this.load.image('banana3', 'assets/BANANA3.png');
     }
 
     create() {
@@ -150,6 +150,10 @@ class RoomsScene extends Phaser.Scene {
         createPinkButton(this, portraitWidth/2, 250, 300, 50, 'CREAR SALA NUEVA', () => {
             const newCode = generateCharlyCode();
             gameState.currentRoom = newCode;
+            
+            if (!socket) { socket = io(BACKEND_URL); }
+            socket.emit('join_room', { room: newCode });
+
             fetch(`${BACKEND_URL}/api/room`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -161,8 +165,8 @@ class RoomsScene extends Phaser.Scene {
         this.add.text(portraitWidth/2, 380, '- O UNITE A UNA -', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
 
         const domHTML = `
-            <div style="text-align:center;">
-                <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; margin-bottom: 15px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase;"><br>
+            <div style="text-align:center; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
+                <input type="text" id="roomCodeIn" placeholder="CÓDIGO CHARLY" style="padding:15px; width:220px; font-family:'Press Start 2P'; text-align:center; font-size:12px; border: 4px solid #ff69b4; outline: none; text-transform: lowercase; margin-bottom: 20px;">
                 <button id="joinBtn" style="padding:15px 30px; background:#ff69b4; color:#FFFF00; border: none; font-family:'Press Start 2P'; cursor:pointer; font-size: 14px;">UNIRSE</button>
             </div>
         `;
@@ -771,8 +775,6 @@ class GameScene extends Phaser.Scene {
             const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, peace.x, peace.y);
             if (dist < 65) {
                 this.collectPeace(this.player, peace);
-            } else if (peace.y < -100) {
-                peace.destroy();
             }
         });
 
@@ -853,13 +855,28 @@ class GameScene extends Phaser.Scene {
                     }
                 }
             }
-
-            if (pool.y < -100) pool.destroy();
         });
         
-        [...this.clouds.getChildren()].forEach(cloud => {
-            if (cloud.y < -100) cloud.destroy();
-        });
+        // --- MASTER GARBAGE COLLECTOR (Memory Leak Fix) ---
+        // Destroys all objects that go out of the camera bounds
+        // Usually objects spawn around Y: 800-1200 and move towards Y: -150 depending on velocity.
+        // If the player falls, objects could also spawn below or above.
+        const gcCamTop = this.cameras.main.scrollY - 150;
+        const gcCamBottom = this.cameras.main.scrollY + portraitHeight + 350; 
+        
+        const garbageCollectGroup = (group) => {
+            [...group.getChildren()].forEach(obj => {
+                if (obj.y < gcCamTop || obj.y > gcCamBottom || obj.x < -200 || obj.x > portraitWidth + 200) {
+                    obj.destroy();
+                }
+            });
+        };
+
+        garbageCollectGroup(this.pools);
+        garbageCollectGroup(this.peaceItems);
+        garbageCollectGroup(this.bananas);
+        garbageCollectGroup(this.clouds);
+        garbageCollectGroup(this.cows);
     }
 
     handleSuccess(pool) {

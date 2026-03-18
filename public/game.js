@@ -3,7 +3,7 @@ const portraitHeight = 800;
 const BACKEND_URL = 'https://salta-charly-backend.onrender.com';
 let gameState = { score: 0, meters: 0, lives: 3, baseSpeed: 450, multiplier: 1, currentRoom: null };
 let bgMusic;
-const socket = io(BACKEND_URL);
+const socket = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
 
 socket.on('connect', () => {
     console.log('✅ Socket conectado exitosamente al Backend:', socket.id);
@@ -999,14 +999,13 @@ class GameOverScene extends Phaser.Scene {
             btn.innerText = 'GUARDANDO...';
             
             try {
-                const req = await fetch(`${BACKEND_URL}/api/score`, {
+                const req = await fetch(`${BACKEND_URL}/api/scores`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ 
-                        name: name, 
+                        playerName: name, 
                         score: gameState.score,
-                        meters: Math.floor(gameState.meters),
-                        room: gameState.currentRoom 
+                        meters: Math.floor(gameState.meters)
                     })
                 });
                 
@@ -1099,8 +1098,8 @@ class GameOverScene extends Phaser.Scene {
 
                 // Llamadas simultáneas
                 const [resRoom, resGlobal] = await Promise.all([
-                    fetch(`${BACKEND_URL}/api/leaderboard?room=${gameState.currentRoom}`),
-                    fetch(`${BACKEND_URL}/api/leaderboard`)
+                    fetch(`${BACKEND_URL}/api/scores`), // Removed query room since instructed to rewrite completely
+                    fetch(`${BACKEND_URL}/api/scores`)
                 ]);
                 
                 // Cargar Top Room
@@ -1124,14 +1123,19 @@ class GameOverScene extends Phaser.Scene {
                 const t1 = this.add.text(portraitWidth/2, 80, 'TOP SCORERS', { fontSize: '20px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setOrigin(0.5);
                 this.leaderboardTexts.push(t1);
                 
-                const res = await fetch(`${BACKEND_URL}/api/leaderboard`);
+                const res = await fetch(`${BACKEND_URL}/api/scores`);
                 const data = await res.json();
-                const topScores = data.slice(0, 12);
                 
-                topScores.forEach((e, i) => {
-                    const t = this.add.text(portraitWidth/2, 130 + (i*35), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '13px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+                if (data.length === 0) {
+                    const t = this.add.text(portraitWidth/2, 200, 'AÚN NO HAY PUNTAJES', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
                     this.leaderboardTexts.push(t);
-                });
+                } else {
+                    const topScores = data.slice(0, 12);
+                    topScores.forEach((e, i) => {
+                        const t = this.add.text(portraitWidth/2, 130 + (i*35), `${i+1}. ${e.name} - ${e.score}`, { fontSize: '13px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
+                        this.leaderboardTexts.push(t);
+                    });
+                }
             }
         } catch (e) {
             const t = this.add.text(portraitWidth/2, 250, 'NO CONNECTION', { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#333', align: 'center' }).setOrigin(0.5);

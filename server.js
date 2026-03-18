@@ -25,40 +25,30 @@ app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/leaderboard', async (req, res) => {
-    const room = req.query.room;
-    let query = supabase.from('scores').select('name, score').order('score', { ascending: false }).limit(10);
-
-    if (room && room.trim() !== '') {
-        query = query.eq('room_code', room.trim().toLowerCase());
-    }
-
-    const { data, error } = await query;
+app.get('/api/scores', async (req, res) => {
+    const { data, error } = await supabase.from('scores').select('*').order('score', { ascending: false }).limit(10);
 
     if (error) {
         return res.status(500).json({ error: error.message });
     }
     
-    // Map data to match existing frontend expectations if needed, Supabase returns [{name: '...', score: 123}] which matches perfectly.
     res.json(data);
 });
 
-app.post('/api/score', async (req, res) => {
-    const { name, score, room } = req.body;
-    let meters = typeof req.body.meters === 'number' ? req.body.meters : 0;
+app.post('/api/scores', async (req, res) => {
+    const { playerName, score, meters } = req.body;
+    let fallbackMeters = typeof meters === 'number' ? meters : 0;
     
-    if (!name || typeof score !== 'number') return res.status(400).json({ error: 'Invalid input' });
+    if (!playerName || typeof score !== 'number') return res.status(400).json({ error: 'Invalid input' });
     
-    const cleanName = name.substring(0, 10).toUpperCase();
-    const cleanRoom = room ? room.trim().toLowerCase() : null;
+    const cleanName = playerName.substring(0, 10).toUpperCase();
     
     const { data, error } = await supabase.from('scores').insert([
         { 
-            player_name: cleanName, // matching Phase 1 schema
-            name: cleanName, // storing both for backwards compatibility with GET /api/leaderboard since I explicitly queried 'name'
+            player_name: cleanName, 
+            name: cleanName, 
             score: score, 
-            meters: meters, 
-            room_code: cleanRoom 
+            meters: fallbackMeters
         }
     ]).select();
 

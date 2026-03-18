@@ -36,7 +36,8 @@ app.get('/api/scores', async (req, res) => {
     const { room } = req.query;
     let query = supabase.from('scores').select('*').order('score', { ascending: false }).limit(10);
     if (room && room.trim() !== '') {
-        query = query.eq('room_code', room.trim().toLowerCase());
+        // Filter by room_name for per-sala leaderboard
+        query = query.eq('room_name', room.trim().toLowerCase());
     }
     const { data, error } = await query;
     if (error) { return res.status(500).json({ error: error.message }); }
@@ -44,19 +45,21 @@ app.get('/api/scores', async (req, res) => {
 });
 
 app.post('/api/scores', async (req, res) => {
-    const { playerName, score, meters } = req.body;
+    const { playerName, score, meters, roomName } = req.body;
     let fallbackMeters = typeof meters === 'number' ? meters : 0;
     
     if (!playerName || typeof score !== 'number') return res.status(400).json({ error: 'Invalid input' });
     
     const cleanName = playerName.substring(0, 10).toUpperCase();
+    const cleanRoom = roomName ? roomName.trim().toLowerCase() : null;
     
     const { data, error } = await supabase.from('scores').insert([
         { 
             player_name: cleanName, 
             name: cleanName, 
             score: score, 
-            meters: fallbackMeters
+            meters: fallbackMeters,
+            room_name: cleanRoom
         }
     ]).select();
 

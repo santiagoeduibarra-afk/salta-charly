@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS public.scores (
     score INTEGER NOT NULL,
     meters REAL NOT NULL DEFAULT 0.0,
     room_code TEXT,
+    room_name TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -15,6 +16,11 @@ ALTER TABLE public.scores ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public inserts" ON public.scores FOR INSERT WITH CHECK (true);
 
 CREATE POLICY "Allow public reads" ON public.scores FOR SELECT USING (true);
+
+-- MIGRATION: Add room_name column if table already exists
+-- Run this in Supabase SQL Editor:
+ALTER TABLE public.scores ADD COLUMN IF NOT EXISTS room_name TEXT;
+
 
 -- Tabla para almacenar códigos de sala
 CREATE TABLE IF NOT EXISTS public.rooms (

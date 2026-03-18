@@ -171,67 +171,147 @@ class MenuScene extends Phaser.Scene {
     }
 }
 
-// ── Phaser Numpad helper ─────────────────────────────────────────────────
-// Draws a 4-digit PIN pad inside a Phaser scene.
-// onDone(pinString) is called when the user presses OK.
-function showNumpad(scene, title, onDone, onCancel) {
+// ── Phaser Modal helpers ──────────────────────────────────────────────
+
+// Simple info/error modal (replaces alert)
+function showModal(scene, message, onClose) {
     const cx = scene.cameras.main.centerX;
     const cy = scene.cameras.main.centerY;
-    const pad = scene.add.container(cx, cy).setDepth(50);
+    const mod = scene.add.container(cx, cy).setDepth(100);
+    const bg = scene.add.rectangle(0, 0, 360, 260, 0x1a1a2e, 1).setStrokeStyle(5, 0xff69b4);
+    const msg = scene.add.text(0, -50, message, { fontSize: '13px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', wordWrap: { width: 310 } }).setOrigin(0.5);
+    const okBtn = scene.add.rectangle(0, 80, 160, 50, 0xff69b4).setInteractive({ useHandCursor: true });
+    const okTxt = scene.add.text(0, 80, 'OK', { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#FFFF00' }).setOrigin(0.5);
+    mod.add([bg, msg, okBtn, okTxt]);
+    okBtn.on('pointerdown', () => { mod.destroy(); if (onClose) onClose(); });
+}
 
-    const bg = scene.add.rectangle(0, 0, 340, 480, 0x222244, 0.97).setStrokeStyle(4, 0xff69b4);
-    const titleTxt = scene.add.text(0, -200, title, { fontSize: '13px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', wordWrap: { width: 300 } }).setOrigin(0.5);
-    const pinDisplay = scene.add.text(0, -145, '_ _ _ _', { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#ff69b4', backgroundColor: '#111', padding: { x: 14, y: 8 } }).setOrigin(0.5);
-    pad.add([bg, titleTxt, pinDisplay]);
+// Text input modal (replaces window.prompt)
+function showPromptModal(scene, question, defaultVal, onDone, onCancel) {
+    const cx = scene.cameras.main.centerX;
+    const cy = scene.cameras.main.centerY;
+    const mod = scene.add.container(cx, cy).setDepth(100);
+    const bg = scene.add.rectangle(0, 0, 380, 300, 0x1a1a2e, 1).setStrokeStyle(5, 0xff69b4);
+    const qTxt = scene.add.text(0, -100, question, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', wordWrap: { width: 340 } }).setOrigin(0.5);
+    let inputVal = defaultVal || '';
+    const inputDisplay = scene.add.text(0, -30, inputVal || '|', { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#ff69b4', backgroundColor: '#111', padding: { x: 12, y: 8 } }).setOrigin(0.5);
+    mod.add([bg, qTxt, inputDisplay]);
 
-    let pin = '';
-    const refresh = () => {
-        const chars = ['_', '_', '_', '_'];
-        for (let i = 0; i < pin.length; i++) chars[i] = pin[i];
-        pinDisplay.setText(chars.join(' '));
+    // Keyboard input
+    const onKey = (event) => {
+        if (event.key === 'Enter') { finish(); return; }
+        if (event.key === 'Escape') { cancel(); return; }
+        if (event.key === 'Backspace') { inputVal = inputVal.slice(0,-1); }
+        else if (event.key.length === 1) { inputVal += event.key; }
+        inputDisplay.setText(inputVal || '|');
+    };
+    window.addEventListener('keydown', onKey);
+
+    const finish = () => { window.removeEventListener('keydown', onKey); mod.destroy(); if (onDone) onDone(inputVal); };
+    const cancel = () => { window.removeEventListener('keydown', onKey); mod.destroy(); if (onCancel) onCancel(); };
+
+    const okBtn = scene.add.rectangle(-70, 90, 130, 48, 0xff69b4).setInteractive({ useHandCursor: true });
+    const okTxt = scene.add.text(-70, 90, 'OK', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#FFFF00' }).setOrigin(0.5);
+    const cancelBtn = scene.add.rectangle(80, 90, 130, 48, 0x555555).setInteractive({ useHandCursor: true });
+    const cancelTxt = scene.add.text(80, 90, 'CANCELAR', { fontSize: '9px', fontFamily: '"Press Start 2P"', color: '#FFFFFF' }).setOrigin(0.5);
+    mod.add([okBtn, okTxt, cancelBtn, cancelTxt]);
+    okBtn.on('pointerdown', finish);
+    cancelBtn.on('pointerdown', cancel);
+}
+
+// ── Phaser Numpad ────────────────────────────────────────────────
+// showNumpad(scene, title, onDone, onCancel, confirmMode)
+// confirmMode=true: asks for PIN twice and validates match before calling onDone
+function showNumpad(scene, title, onDone, onCancel, confirmMode = false) {
+    const cx = scene.cameras.main.centerX;
+    const cy = scene.cameras.main.centerY;
+    let firstPin = null;
+
+    const buildPad = (currentTitle, onPinEntry) => {
+        // Destroy previous pad if exists
+        if (scene._activePad) { scene._activePad.destroy(); }
+        const pad = scene.add.container(cx, cy).setDepth(50);
+        scene._activePad = pad;
+
+        const bg = scene.add.rectangle(0, 0, 340, 490, 0x1a1a2e, 0.98).setStrokeStyle(4, 0xff69b4);
+        const titleTxt = scene.add.text(0, -210, currentTitle, { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', wordWrap: { width: 300 } }).setOrigin(0.5);
+        // Show asterisks for PIN (masked)
+        const pinDisplay = scene.add.text(0, -155, '_ _ _ _', { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#ff69b4', backgroundColor: '#111', padding: { x: 14, y: 8 } }).setOrigin(0.5);
+        pad.add([bg, titleTxt, pinDisplay]);
+
+        let pin = '';
+        const refresh = () => {
+            // Show asterisks for entered digits, underscores for remaining
+            const chars = ['_', '_', '_', '_'];
+            for (let i = 0; i < pin.length; i++) chars[i] = '*';
+            pinDisplay.setText(chars.join(' '));
+        };
+
+        const layout = [
+            ['1','2','3'],
+            ['4','5','6'],
+            ['7','8','9'],
+            ['DEL','0','OK']
+        ];
+        const btnW = 80, btnH = 58, gapX = 10, gapY = 10;
+        const startX = -((btnW * 3 + gapX * 2) / 2) + btnW / 2;
+        const startY = -85;
+
+        layout.forEach((row, ri) => {
+            row.forEach((label, ci) => {
+                const bx = startX + ci * (btnW + gapX);
+                const by = startY + ri * (btnH + gapY);
+                const isOk = label === 'OK';
+                const isDel = label === 'DEL';
+                const btnBg = scene.add.rectangle(bx, by, btnW, btnH, isOk ? 0xff69b4 : isDel ? 0x662222 : 0x223366)
+                    .setStrokeStyle(2, 0xffffff).setInteractive({ useHandCursor: true });
+                const btnTxt = scene.add.text(bx, by, label, { fontSize: isOk||isDel ? '10px' : '18px', fontFamily: '"Press Start 2P"', color: '#FFFFFF' }).setOrigin(0.5);
+                pad.add([btnBg, btnTxt]);
+
+                btnBg.on('pointerdown', () => {
+                    btnBg.setScale(0.92);
+                    if (isOk) {
+                        if (pin.length === 4) {
+                            pad.destroy();
+                            onPinEntry(pin);
+                        } else {
+                            pinDisplay.setColor('#ff0000');
+                            scene.time.delayedCall(400, () => pinDisplay.setColor('#ff69b4'));
+                        }
+                    } else if (isDel) {
+                        pin = pin.slice(0, -1); refresh();
+                    } else {
+                        if (pin.length < 4) { pin += label; refresh(); }
+                    }
+                });
+                btnBg.on('pointerup', () => btnBg.setScale(1));
+            });
+        });
+
+        const cancelTxt = scene.add.text(0, 200, '[ CANCELAR ]', { fontSize: '11px', fontFamily: '"Press Start 2P"', color: '#888' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        cancelTxt.on('pointerdown', () => { pad.destroy(); if (onCancel) onCancel(); });
+        pad.add(cancelTxt);
     };
 
-    // Draw 0-9 buttons in 3x4 grid + DEL + OK
-    const layout = [
-        ['1','2','3'],
-        ['4','5','6'],
-        ['7','8','9'],
-        ['DEL','0','OK']
-    ];
-    const btnW = 80, btnH = 55, gapX = 10, gapY = 10;
-    const startX = -((btnW * 3 + gapX * 2) / 2) + btnW / 2;
-    const startY = -90;
-
-    layout.forEach((row, ri) => {
-        row.forEach((label, ci) => {
-            const bx = startX + ci * (btnW + gapX);
-            const by = startY + ri * (btnH + gapY);
-            const isOk = label === 'OK';
-            const isDel = label === 'DEL';
-            const btnBg = scene.add.rectangle(bx, by, btnW, btnH, isOk ? 0xff69b4 : isDel ? 0x884444 : 0x334466)
-                .setStrokeStyle(2, 0xffffff)
-                .setInteractive({ useHandCursor: true });
-            const btnTxt = scene.add.text(bx, by, label, { fontSize: isOk||isDel ? '10px' : '16px', fontFamily: '"Press Start 2P"', color: '#FFFFFF' }).setOrigin(0.5);
-            pad.add([btnBg, btnTxt]);
-
-            btnBg.on('pointerdown', () => {
-                btnBg.setScale(0.92);
-                if (isOk) {
-                    if (pin.length === 4) { pad.destroy(); onDone(pin); }
-                    else { pinDisplay.setColor('#ff0000'); scene.time.delayedCall(400, () => pinDisplay.setColor('#ff69b4')); }
-                } else if (isDel) {
-                    pin = pin.slice(0, -1); refresh();
+    if (confirmMode) {
+        // Step 1: enter PIN
+        buildPad(title, (pin1) => {
+            firstPin = pin1;
+            // Step 2: confirm PIN
+            buildPad('CONFIRMA\nTU PIN:', (pin2) => {
+                if (pin1 === pin2) {
+                    onDone(pin1);
                 } else {
-                    if (pin.length < 4) { pin += label; refresh(); }
+                    showModal(scene, 'LOS PINES\nNO COINCIDEN.\nIntenta de nuevo.', () => {
+                        firstPin = null;
+                        showNumpad(scene, title, onDone, onCancel, true);
+                    });
                 }
             });
-            btnBg.on('pointerup', () => btnBg.setScale(1));
         });
-    });
-
-    const cancelTxt = scene.add.text(0, 195, '[ CANCELAR ]', { fontSize: '11px', fontFamily: '"Press Start 2P"', color: '#aaa' }).setOrigin(0.5).setInteractive();
-    cancelTxt.on('pointerdown', () => { pad.destroy(); if (onCancel) onCancel(); });
-    pad.add(cancelTxt);
+    } else {
+        buildPad(title, onDone);
+    }
 }
 
 class RoomMenuScene extends Phaser.Scene {
@@ -246,37 +326,37 @@ class RoomMenuScene extends Phaser.Scene {
 
         // CREAR SALA
         createPinkButton(this, cx, 320, 300, 60, 'CREAR SALA', () => {
-            const roomName = window.prompt('Nombre de la sala (p.ej: DINO-742):');
-            if (!roomName || roomName.trim() === '') return;
-            const cleanName = roomName.trim().toLowerCase();
-            showNumpad(this, 'Elige un PIN de 4 dígitos\npara tu sala:', (pin) => {
-                if (!socket || !socket.connected) { alert('Sin conexión al servidor.'); return; }
-                gameState.currentRoom = cleanName;
-                socket.once('roomCreated', (code) => {
-                    this.scene.start('LobbyScene', { isHost: true });
-                });
-                socket.emit('createRoom', { roomName: cleanName, roomPin: pin });
+            showPromptModal(this, 'NOMBRE DE\nLA SALA:', '', (roomName) => {
+                if (!roomName || roomName.trim() === '') return;
+                const cleanName = roomName.trim().toLowerCase();
+                // confirmMode = true: asks PIN twice
+                showNumpad(this, 'ELIGE UN\nPIN (4 DÍGITOS):', (pin) => {
+                    if (!socket || !socket.connected) { showModal(this, 'SIN CONEXIÓN\nAL SERVIDOR.'); return; }
+                    gameState.currentRoom = cleanName;
+                    socket.once('roomCreated', () => { this.scene.start('LobbyScene', { isHost: true }); });
+                    socket.emit('createRoom', { roomName: cleanName, roomPin: pin });
+                }, null, true); // true = double-confirm mode
             });
         });
 
         // ENTRAR A SALA
         createPinkButton(this, cx, 420, 300, 60, 'ENTRAR A SALA', () => {
-            const roomName = window.prompt('Nombre de la sala a la que quieres entrar:');
-            if (!roomName || roomName.trim() === '') return;
-            const cleanName = roomName.trim().toLowerCase();
-            showNumpad(this, `PIN de la sala\n${cleanName.toUpperCase()}:`, (pin) => {
-                if (!socket || !socket.connected) { alert('Sin conexión al servidor.'); return; }
-                gameState.currentRoom = cleanName;
-
-                socket.once('joinedRoom', (code) => {
-                    gameState.currentRoom = code;
-                    this.scene.start('LobbyScene');
+            showPromptModal(this, 'NOMBRE DE\nLA SALA:', '', (roomName) => {
+                if (!roomName || roomName.trim() === '') return;
+                const cleanName = roomName.trim().toLowerCase();
+                showNumpad(this, `PIN DE LA SALA\n${cleanName.toUpperCase()}:`, (pin) => {
+                    if (!socket || !socket.connected) { showModal(this, 'SIN CONEXIÓN\nAL SERVIDOR.'); return; }
+                    gameState.currentRoom = cleanName;
+                    socket.once('joinedRoom', (code) => {
+                        gameState.currentRoom = code;
+                        this.scene.start('LobbyScene');
+                    });
+                    socket.once('joinError', (msg) => {
+                        gameState.currentRoom = null;
+                        showModal(this, msg.toUpperCase());
+                    });
+                    socket.emit('joinRoom', { roomName: cleanName, roomPin: pin });
                 });
-                socket.once('joinError', (msg) => {
-                    alert('❌ ' + msg);
-                    gameState.currentRoom = null;
-                });
-                socket.emit('joinRoom', { roomName: cleanName, roomPin: pin });
             });
         });
 
@@ -499,8 +579,9 @@ class GameScene extends Phaser.Scene {
     }
 
     collectBanana(player, banana) {
-        if (!banana.active) return;
-        banana.active = false;
+        // Fix 1: strict physics guard
+        if (!banana || !banana.scene || !banana.active || !banana.body) return;
+        banana.body.enable = false;
         banana.destroy();
         
         try { this.sound.play('splash'); } catch(e) {} 
@@ -508,7 +589,9 @@ class GameScene extends Phaser.Scene {
         this.hasParachute = true;
 
         let deltaX = this.player.x - this.player.lastX;
-        if (deltaX < -0.1 || this.cursors.left.isDown) {
+        // Guard: cursors is null on mobile
+        const leftDown = this.cursors && this.cursors.left.isDown;
+        if (deltaX < -0.1 || leftDown) {
             this.player.lastParachuteTexture = 'banana2';
         } else {
             this.player.lastParachuteTexture = 'banana3'; 
@@ -570,6 +653,8 @@ class GameScene extends Phaser.Scene {
     }
 
     hitCow(player, cow) {
+        // Fix 1: strict physics guard
+        if (!cow || !cow.scene || !cow.active || !cow.body) return;
         if (this.isInvulnerable || this.isAbducted || this.isPushed) return;
         
         this.isPushed = true; 
@@ -1133,7 +1218,8 @@ class GameOverScene extends Phaser.Scene {
                     body: JSON.stringify({ 
                         playerName: name, 
                         score: gameState.score,
-                        meters: Math.floor(gameState.meters)
+                        meters: Math.floor(gameState.meters),
+                        roomName: gameState.currentRoom || null
                     })
                 });
                 

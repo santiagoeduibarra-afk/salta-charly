@@ -463,8 +463,12 @@ class GameScene extends Phaser.Scene {
         this.ufoActive = false;
         this.pendingUfo = false;
 
-        // UFO State Machine
-        this.ufoTargets = [1000, 3000, 5000, 10000];
+        // UFO State Machine: REQ 1 Procedural targets for pacing
+        this.ufoTargets = [
+            Phaser.Math.Between(500, 1000),   // Primera aparición
+            Phaser.Math.Between(2000, 5000),  // Segunda aparición
+            Phaser.Math.Between(6000, 10000)  // Tercera aparición (Ajustado rango)
+        ];
         this.currentUfoIndex = 0;
         this.ufoState = 'IDLE'; // 'IDLE' | 'WARNING' | 'ACTIVE'
         
@@ -672,10 +676,12 @@ class GameScene extends Phaser.Scene {
         try { this.sound.play('moo_sound'); } catch(e) {}
         
         const fromLeft = Phaser.Math.Between(0, 1) === 0;
-        const startX = fromLeft ? -50 : portraitWidth + 50;
-        const startY = portraitHeight + Phaser.Math.Between(50, 150);
+        // REQ 2: Garantizar visibilidad inicial (dentro o al borde exacto)
+        const startX = fromLeft ? 0 : portraitWidth;
+        const startY = this.cameras.main.scrollY + portraitHeight + 50;
         
         const cow = this.cows.create(startX, startY, 'vaca1');
+        cow.setVisible(true).setAlpha(1); // Forzar visibilidad
         cow.setDisplaySize(130, 130); 
         cow.setDepth(25); 
         
@@ -1159,6 +1165,7 @@ class GameScene extends Phaser.Scene {
                 this.ufo = null;
                 this.ufoActive = false;
                 this.ufoState = 'IDLE';            // Vuelven vacas y piletas
+                this.lastWallY = 0;                 // REQ 2: Limpiar conciencia espacial
                 this.currentUfoIndex++;             // Avanzar al siguiente target
 
                 // BUG FIX: Asegurar restauración completa del jugador
@@ -1275,33 +1282,49 @@ class GameScene extends Phaser.Scene {
                 x += wallW;
             }
         }
-        // Fase 3: 2500m+ (Líneas más seguidas o patrones complejos)
+        // Fase 3: 2500m+ (Patrones Zig-Zag REQ 3)
         else {
-            const isLine = Phaser.Math.Between(1, 10) <= 7;
-            if (isLine) {
-                const gapW = 210; // Hueco justo
-                const gapX = Math.floor(Phaser.Math.Between(40, portraitWidth - gapW - 40));
+            const isZigZag = Phaser.Math.Between(1, 10) <= 7;
+            if (isZigZag) {
+                const rows = Phaser.Math.Between(2, 3);
+                let lastGapX = -1;
+                
+                for (let r = 0; r < rows; r++) {
+                    const rowY = spawnY + (r * 180); // Separación vertical
+                    let gapX;
+                    
+                    // Alternar el hueco (Si el previo fue a la izq, este va a la derecha/centro)
+                    if (lastGapX === -1) {
+                        gapX = Math.floor(Phaser.Math.Between(40, portraitWidth - 250));
+                    } else if (lastGapX < portraitWidth / 2) {
+                        gapX = Math.floor(Phaser.Math.Between(portraitWidth / 2, portraitWidth - 250));
+                    } else {
+                        gapX = Math.floor(Phaser.Math.Between(40, portraitWidth / 2));
+                    }
+                    lastGapX = gapX;
 
-                let x = wallW / 2;
-                while (x < gapX) {
-                    const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
-                    seg.setDisplaySize(wallW, wallH);
-                    seg.refreshBody();
-                    seg.setDepth(15).setImmovable(true);
-                    seg.body.allowGravity = false;
-                    x += wallW;
+                    const gapW = 210;
+                    let x = wallW / 2;
+                    while (x < gapX) {
+                        const seg = this.walls.create(Math.floor(x), rowY, wallKey);
+                        seg.setDisplaySize(wallW, wallH);
+                        seg.refreshBody();
+                        seg.setDepth(15).setImmovable(true);
+                        seg.body.allowGravity = false;
+                        x += wallW;
+                    }
+                    x = Math.floor(gapX + gapW);
+                    x = Math.floor(x / wallW) * wallW + (wallW / 2);
+                    while (x < portraitWidth + wallW) {
+                        const seg = this.walls.create(Math.floor(x), rowY, wallKey);
+                        seg.setDisplaySize(wallW, wallH);
+                        seg.refreshBody();
+                        seg.setDepth(15).setImmovable(true);
+                        seg.body.allowGravity = false;
+                        x += wallW;
+                    }
                 }
-                x = Math.floor(gapX + gapW);
-                x = Math.floor(x / wallW) * wallW + (wallW / 2);
-
-                while (x < portraitWidth + wallW) {
-                    const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
-                    seg.setDisplaySize(wallW, wallH);
-                    seg.refreshBody();
-                    seg.setDepth(15).setImmovable(true);
-                    seg.body.allowGravity = false;
-                    x += wallW;
-                }
+                this.lastWallY = spawnY + ((rows-1) * 180);
             } else {
                 // Mix de bloques sueltos
                 for (let i = 0; i < 4; i++) {
@@ -1339,7 +1362,10 @@ class GameScene extends Phaser.Scene {
             });
 
             if (gameState.lives <= 0) {
-                this.triggerFail(player, wall, 'GAME OVER');
+                this.physics.pause();
+                this.player.setVisible(false);
+                if (bgMusic) bgMusic.stop(); 
+                this.scene.start('GameOverScene');
                 return;
             }
 
@@ -1350,6 +1376,7 @@ class GameScene extends Phaser.Scene {
                 onComplete: () => {
                     player.setAlpha(1);
                     this.isInvulnerable = false;
+                    // REQ 4: Asegurar que el collider vuelva a estar activo
                     if (this.wallCollider) this.wallCollider.active = true;
                 }
             });

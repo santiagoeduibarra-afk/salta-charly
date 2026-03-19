@@ -458,8 +458,12 @@ class GameScene extends Phaser.Scene {
         this.isTrippyMode = false;
         this.isAbducted = false; 
         this.ufoActive = false;
-        this.pendingUfo = false; 
-        this.firstUfoSpawned = false;
+        this.pendingUfo = false;
+
+        // UFO State Machine
+        this.ufoTargets = [1000, 3000, 5000, 10000];
+        this.currentUfoIndex = 0;
+        this.ufoState = 'IDLE'; // 'IDLE' | 'WARNING' | 'ACTIVE'
         
         this.isPushed = false; 
         this.lastCowSpawnMeter = 0; 
@@ -584,7 +588,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnBanana() {
-        if (this.ufoActive) return;
+        if (this.ufoState !== 'IDLE') return;
         const xPos = Phaser.Math.Between(50, portraitWidth - 50);
         const banana = this.bananas.create(xPos, 1000, 'banana1'); 
         banana.setDisplaySize(170, 170); 
@@ -647,7 +651,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCow() {
-        if (this.ufoActive) return;
+        if (this.ufoState !== 'IDLE') return;
         try { this.sound.play('moo_sound'); } catch(e) {}
         
         const fromLeft = Phaser.Math.Between(0, 1) === 0;
@@ -689,22 +693,21 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnUFO() {
-        if (this.ufoActive || this.isTrippyMode) return;
-        
+        if (this.ufoState !== 'ACTIVE') return; // Only spawn when state machine is in ACTIVE
+        if (this.isTrippyMode) return;
+
         try { this.sound.play('ufo_sound'); } catch(e) {}
         
         if (!this.textures.exists('ufo1')) { 
             console.error('Falta textura UFO'); 
+            this.ufoState = 'IDLE'; // Reset state if texture is missing
             return; 
         }
 
-        // REQ 3: Clear Airspace — destroy all active obstacles before UFO event
-        [...this.pools.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
-        [...this.cows.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
-        [...this.peaceItems.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
-        [...this.bananas.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
+        // Clear Airspace — by the time spawnUFO() is called, WARNING phase
+        // has already silenced spawners for 200m so obstacles left screen naturally.
+        // No forced destruction needed here.
 
-        // Nace 100px por encima de lo que la cámara está viendo actualmente
         const spawnY = this.cameras.main.scrollY - 100; 
         const spawnX = Phaser.Math.Between(50, portraitWidth - 50);
         
@@ -847,7 +850,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacles() {
-        if (this.ufoActive) return;
+        if (this.ufoState !== 'IDLE') return;
         if (this.pendingUfo) return;
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
@@ -882,7 +885,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCloud() {
-        if (this.ufoActive) return;
+        if (this.ufoState !== 'IDLE') return;
         const edgeX = Phaser.Math.Between(-50, portraitWidth + 50);
         const cloud = this.clouds.create(edgeX, 900, 'fluffy_cloud');
         
@@ -927,22 +930,32 @@ class GameScene extends Phaser.Scene {
     update(time, delta) {
         if (this.isInvulnerable) return;
 
-        // Scripted Event: forzar UFO a los 1000 METROS (no score)
-        if (gameState.meters >= 1000 && !this.firstUfoSpawned) {
-            this.firstUfoSpawned = true;
-            this.spawnUFO();
+        // --- UFO STATE MACHINE ---
+        if (this.currentUfoIndex < this.ufoTargets.length) {
+            const targetMeters = this.ufoTargets[this.currentUfoIndex];
+
+            // FASE WARNING: 200m antes del target, frenar spawners
+            if (gameState.meters >= (targetMeters - 200) && this.ufoState === 'IDLE') {
+                this.ufoState = 'WARNING';
+            }
+
+            // FASE ACTIVE: llegamos al target, instanciar UFO
+            if (gameState.meters >= targetMeters && this.ufoState === 'WARNING') {
+                this.ufoState = 'ACTIVE';
+                this.spawnUFO();
+            }
         }
 
         if (gameState.meters - this.lastBananaSpawnMeter >= 800) {
             this.lastBananaSpawnMeter = gameState.meters;
-            if (!this.ufoActive && !this.pendingUfo && !this.isTrippyMode && !this.isAbducted && !this.hasParachute) {
+            if (this.ufoState === 'IDLE' && !this.isTrippyMode && !this.isAbducted && !this.hasParachute) {
                 this.spawnBanana();
             }
         }
 
         if (gameState.meters - this.lastCowSpawnMeter >= 500) {
             this.lastCowSpawnMeter = gameState.meters;
-            if (!this.ufoActive && !this.pendingUfo && !this.isTrippyMode && !this.isAbducted) {
+            if (this.ufoState === 'IDLE' && !this.isTrippyMode && !this.isAbducted) {
                 const cowCount = Phaser.Math.Between(1, 3);
                 for (let i = 0; i < cowCount; i++) {
                     this.time.delayedCall(i * 600, () => { this.spawnCow(); });
@@ -1140,15 +1153,17 @@ class GameScene extends Phaser.Scene {
         garbageCollectGroup(this.cows);
 
         // --- UFO LIFECYCLE WATCHER ---
-        if (this.ufoActive && (!this.ufo || !this.ufo.active)) {
-            this.ufoActive = false; // ¡Reanuda los obstáculos normales!
-        }
-        
-        if (this.ufoActive && this.ufo && this.ufo.active) {
-            // Si el UFO pasa por debajo del límite INFERIOR de la cámara
-            if (this.ufo.y > this.cameras.main.scrollY + this.cameras.main.height + 150) {
-                this.ufo.destroy();
-                this.ufoActive = false; // Vuelven las vacas y piletas
+        if (this.ufoState === 'ACTIVE') {
+            const ufoGone = !this.ufo || !this.ufo.active;
+            const ufoOutOfBounds = this.ufo && this.ufo.active &&
+                this.ufo.y > this.cameras.main.scrollY + this.cameras.main.height + 150;
+
+            if (ufoGone || ufoOutOfBounds) {
+                if (this.ufo && this.ufo.active) { this.ufo.destroy(); }
+                this.ufo = null;
+                this.ufoActive = false;
+                this.ufoState = 'IDLE';            // Vuelven vacas y piletas
+                this.currentUfoIndex++;             // Avanzar al siguiente target
             }
         }
     }

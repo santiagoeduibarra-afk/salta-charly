@@ -476,6 +476,7 @@ class GameScene extends Phaser.Scene {
         this.lastBananaSpawnMeter = 0;
         this.parachuteTimer = null;
         this.lastPeaceAudio = 0;
+        this.lastWallY = 0; // REQ 4: Para evitar superposición con piletas
 
         this.cameras.main.setBackgroundColor('#87CEEB');
 
@@ -661,7 +662,9 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCow() {
-        // Cows always spawn, even during UFO warning phase
+        // REQ 3: Vacas respetan espacio aéreo
+        if (this.ufoState !== 'IDLE') return;
+
         try { this.sound.play('moo_sound'); } catch(e) {}
         
         const fromLeft = Phaser.Math.Between(0, 1) === 0;
@@ -880,9 +883,13 @@ class GameScene extends Phaser.Scene {
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
 
+        // REQ 4: Clearance entre Paredes y Piletas (evitar situaciones injustas)
+        const spawnY_Pool = 900;
+        if (Math.abs(spawnY_Pool - this.lastWallY) < 250) return;
+
         if (poolsAllowed && Phaser.Math.Between(1, 10) <= 7) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
-            const pool = this.pools.create(poolX, 900, 'pool');
+            const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
             pool.setDepth(1); 
 
             let scaleDrops = Math.floor(gameState.meters / 1000);
@@ -960,6 +967,8 @@ class GameScene extends Phaser.Scene {
             // FASE WARNING: 200m antes del target, frenar spawners
             if (gameState.meters >= (targetMeters - 200) && this.ufoState === 'IDLE') {
                 this.ufoState = 'WARNING';
+                // REQ 3: Limpiar vacas existentes para dejar espacio al UFO
+                if (this.cows) this.cows.clear(true, true);
             }
 
             // FASE ACTIVE: llegamos al target, instanciar UFO
@@ -1146,8 +1155,12 @@ class GameScene extends Phaser.Scene {
                                     this.player.setVelocity(0, 0); // Reset inercia
                                     this.player.isInvulnerable = false; // Limpiar I-Frames
 
-                                    // REQ 1: startFollow(player, true, 0, 1) para evitar wobble horizontal
-                                    this.cameras.main.startFollow(this.player, true, 0, 1);
+                                    // REQ 1: startFollow(player, true, 0, 1) con offset vertical para evitar saltos
+                                    // El offsetY compensa la diferencia para que no pegue el tirón al centro
+                                    const offsetY = this.player.y - this.cameras.main.centerY;
+                                    this.cameras.main.startFollow(this.player, true, 0, 1, 0, offsetY);
+                                    
+                                    console.log('UFO TERMINADO, ESTADO:', this.ufoState);
                                 }
 
                 // Dar 2.5s de gracia para que no aparezcan paredes de golpe
@@ -1192,6 +1205,7 @@ class GameScene extends Phaser.Scene {
 
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
         const spawnY = 950;
+        this.lastWallY = spawnY; // Memoria para REQ 4
         const wallW = 60; // Ancho estricto
         const wallH = 40; // Alto estricto para look de ladrillo
 

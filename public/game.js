@@ -583,6 +583,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnBanana() {
+        if (this.ufoActive) return;
         const xPos = Phaser.Math.Between(50, portraitWidth - 50);
         const banana = this.bananas.create(xPos, 1000, 'banana1'); 
         banana.setDisplaySize(170, 170); 
@@ -645,6 +646,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCow() {
+        if (this.ufoActive) return;
         try { this.sound.play('moo_sound'); } catch(e) {}
         
         const fromLeft = Phaser.Math.Between(0, 1) === 0;
@@ -701,8 +703,10 @@ class GameScene extends Phaser.Scene {
         [...this.peaceItems.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
         [...this.bananas.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
 
-        this.ufoActive = true;
         this.ufo = this.physics.add.sprite(this.player.x, -100, 'ufo1'); 
+        if (!this.ufo) return;
+
+        this.ufoActive = true;
         this.ufo.setDepth(5); 
         this.ufo.setScale(0); 
         this.ufo.state = 'approaching'; 
@@ -837,10 +841,8 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacles() {
-        // Clear Airspace: pause spawning only while UFO is actively approaching/abducting.
-        // Once ufoActive is false OR trippy mode has started, spawning resumes normally.
+        if (this.ufoActive) return;
         if (this.pendingUfo) return;
-        if (this.ufoActive && !this.isTrippyMode) return;
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
 
@@ -874,6 +876,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCloud() {
+        if (this.ufoActive) return;
         const edgeX = Phaser.Math.Between(-50, portraitWidth + 50);
         const cloud = this.clouds.create(edgeX, 900, 'fluffy_cloud');
         
@@ -1123,6 +1126,15 @@ class GameScene extends Phaser.Scene {
         garbageCollectGroup(this.bananas);
         garbageCollectGroup(this.clouds);
         garbageCollectGroup(this.cows);
+
+        // --- UFO LIFECYCLE WATCHER ---
+        if (this.ufoActive && (!this.ufo || !this.ufo.active)) {
+            this.ufoActive = false; // ¡Reanuda los obstáculos normales!
+        }
+        
+        if (this.ufo && this.ufo.active && this.ufo.y > this.cameras.main.scrollY + this.cameras.main.height + 100) {
+            this.ufo.destroy(); // Esto disparará el bloque de arriba en el próximo frame
+        }
     }
 
     handleSuccess(pool) {
@@ -1233,13 +1245,17 @@ class GameOverScene extends Phaser.Scene {
             btn.innerText = 'GUARDANDO...';
             
             try {
-                // Build a clean payload — never send undefined to Supabase
-                const payload = {
-                    playerName: name,
-                    score: gameState.score,
+                const nombre = name;
+                const puntos = gameState.score;
+                const roomName = gameState.currentRoom;
+                
+                const payload = { 
+                    playerName: nombre, 
+                    score: puntos, 
                     meters: Math.floor(gameState.meters),
-                    room_name: gameState.currentRoom ? gameState.currentRoom.trim().toLowerCase() : null
+                    room_name: roomName || null 
                 };
+                
                 const req = await fetch(`${BACKEND_URL}/api/scores`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},

@@ -67,7 +67,7 @@ app.post('/api/scores', async (req, res) => {
     ]).select();
 
     if (error) {
-        console.error('❌ Supabase score insert error:', JSON.stringify(error));
+        console.error('Error exacto de Supabase:', error.message || error);
         return res.status(500).json({ error: error.message });
     }
     res.json({ success: true, id: data[0].id });

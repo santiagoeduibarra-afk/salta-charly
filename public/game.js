@@ -906,24 +906,25 @@ class GameScene extends Phaser.Scene {
         // REQ: Si es IDLE, intentar spawnear siempre
         if (this.ufoState !== 'IDLE') return;
 
-        console.log("Intentando spawnear pileta. Estado UFO:", this.ufoState);
-
         const spawnY_Pool = 900;
-        // REQ 3: Eliminamos restricción con paredes para saturar el mapa de ítems
+        
+        // REQ 2: Zona de Seguridad (Proteger de spawns sobre paredes)
+        const wallNearby = this.walls.getChildren().some(w => Math.abs(w.y - spawnY_Pool) < 100);
+        if (wallNearby) return; // Abortar spawn si hay una pared a menos de 100px
 
         // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
-            pool.setDepth(5); // REQ 2: Pool al fondo del gameplay (pero sobre nubes)
+            pool.setDepth(5); 
             
             let scaleDrops = Math.floor(gameState.meters / 1000);
             let poolScale = Math.max(0.16, 0.33 - (scaleDrops * 0.05)); 
             pool.setScale(poolScale);
             
-            // REQ 2: Hitbox al 60% y centrada
-            pool.body.setSize(pool.width * 0.6, pool.height * 0.6);
-            pool.body.setOffset(pool.width * 0.2, pool.height * 0.2);
+            // REQ 2: Hitbox al 80% y centrada
+            pool.body.setSize(pool.width * 0.8, pool.height * 0.8);
+            pool.body.setOffset(pool.width * 0.1, pool.height * 0.1);
             
             pool.refreshBody(); // Asegurar físicas
 
@@ -1082,8 +1083,10 @@ class GameScene extends Phaser.Scene {
         }
 
         let currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
+        const difficultyLevel = Math.floor(gameState.meters / 1000);
+        const speedMult = 1 + (difficultyLevel * 0.1); // REQ 4: +10% cada 1000m
         const speedMod = this.hasParachute ? 0.5 : 1; 
-        const actualSpeed = currentSpeed * speedMod;
+        const actualSpeed = currentSpeed * speedMod * speedMult;
 
         gameState.meters += (actualSpeed * delta) / 10000;
         this.meterText.setText(Math.floor(gameState.meters) + 'm');
@@ -1264,111 +1267,91 @@ class GameScene extends Phaser.Scene {
 
     // New obstacle: wall segments with progress difficulty
     spawnWalls() {
-        if (this.ufoState !== 'IDLE' || this.isWallsGracePeriod) return; // Respetar UFO y gracia
+        if (this.ufoState !== 'IDLE' || this.isWallsGracePeriod) return;
+
+        // Pacing Dinámico REQ 4: Reducir delay de spawn con la distancia
+        const baseDelay = 3500;
+        const difficultyLevel = Math.floor(gameState.meters / 1000);
+        const newDelay = Math.max(1500, baseDelay - (difficultyLevel * 250));
+        
+        if (this.wallsTimer) {
+            this.wallsTimer.reset({ delay: newDelay, callback: this.spawnWalls, callbackScope: this, loop: true });
+        }
 
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
         const spawnY = 950;
-        this.lastWallY = spawnY; // Memoria para REQ 4
-        const wallW = 60; // Ancho estricto
-        const wallH = 40; // Alto estricto para look de ladrillo
+        this.lastWallY = spawnY;
+        const wallW = 60;
+        const wallH = 40;
 
-        // Fase 1: 0 - 1000m (Obstáculos simples sueltos)
-        if (gameState.meters < 1000) {
-            const count = Phaser.Math.Between(1, 2);
-            for (let i = 0; i < count; i++) {
-                const rx = Math.floor(Phaser.Math.Between(50, portraitWidth - 50));
-                const block = this.walls.create(rx, spawnY, wallKey);
-                block.setDisplaySize(wallW, wallH);
-                block.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
-                block.refreshBody();
-                block.setDepth(10).setImmovable(true); // REQ 4: Paredes depth intermedio
-                block.body.allowGravity = false;
-            }
-        } 
-        // Fase 2: 1000m - 2500m (Líneas horizontales con un hueco garantizado)
-        else if (gameState.meters < 2500) {
-            const gapW = 230; // Hueco amplio (casi 4 bloques)
-            const gapX = Math.floor(Phaser.Math.Between(50, portraitWidth - gapW - 50));
-            
-            let x = wallW / 2;
-            while (x < gapX) {
-                const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
-                seg.setDisplaySize(wallW, wallH);
-                seg.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
-                seg.refreshBody();
-                seg.setDepth(15).setImmovable(true);
-                seg.body.allowGravity = false;
-                x += wallW;
-            }
-            x = Math.floor(gapX + gapW);
-            // Ajustar para que el bloque después del gap calce en la grilla visual si es posible
-            x = Math.floor(x / wallW) * wallW + (wallW / 2);
+        // Pasaje Garantizado REQ 1
+        const gapWidth = (75 * 1.0) * 1.1; // Charly width * scale * 1.1
 
-            while (x < portraitWidth + wallW) {
-                const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
-                seg.setDisplaySize(wallW, wallH);
-                seg.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
-                seg.refreshBody();
-                seg.setDepth(15).setImmovable(true);
-                seg.body.allowGravity = false;
-                x += wallW;
-            }
-        }
-        // Fase 3: 2500m+ (Patrones Zig-Zag REQ 3)
-        else {
-            const isZigZag = Phaser.Math.Between(1, 10) <= 7;
-            if (isZigZag) {
-                const rows = Phaser.Math.Between(2, 3);
-                let lastGapX = -1;
-                
-                for (let r = 0; r < rows; r++) {
-                    const rowY = spawnY + (r * 180); // Separación vertical
-                    let gapX;
-                    
-                    // Alternar el hueco (Si el previo fue a la izq, este va a la derecha/centro)
-                    if (lastGapX === -1) {
-                        gapX = Math.floor(Phaser.Math.Between(40, portraitWidth - 250));
-                    } else if (lastGapX < portraitWidth / 2) {
-                        gapX = Math.floor(Phaser.Math.Between(portraitWidth / 2, portraitWidth - 250));
-                    } else {
-                        gapX = Math.floor(Phaser.Math.Between(40, portraitWidth / 2));
+        const layoutType = Phaser.Math.Between(1, 7);
+        
+        const createBlock = (bx, by) => {
+            const b = this.walls.create(bx, by, wallKey);
+            b.setDisplaySize(wallW, wallH);
+            b.body.setSize(wallW * 0.9, wallH * 0.9);
+            b.refreshBody();
+            b.setDepth(10).setImmovable(true);
+            b.body.allowGravity = false;
+            return b;
+        };
+
+        switch(layoutType) {
+            case 1: // Bloque simple
+                createBlock(Phaser.Math.Between(50, portraitWidth-50), spawnY);
+                break;
+            case 2: // Bloque horizontal mediano
+                const b2x = Phaser.Math.Between(100, portraitWidth-100);
+                createBlock(b2x - 30, spawnY);
+                createBlock(b2x + 30, spawnY);
+                break;
+            case 3: // Cruz
+                createBlock(portraitWidth/2, spawnY);
+                createBlock(portraitWidth/2 - wallW, spawnY);
+                createBlock(portraitWidth/2 + wallW, spawnY);
+                createBlock(portraitWidth/2, spawnY - wallH);
+                createBlock(portraitWidth/2, spawnY + wallH);
+                break;
+            case 4: // Barra con hueco lateral
+                const sideLeft = Phaser.Math.Between(0, 1) === 0;
+                let x4 = sideLeft ? (gapWidth + wallW/2) : wallW/2;
+                const maxX4 = sideLeft ? portraitWidth : (portraitWidth - gapWidth);
+                while (x4 < maxX4) {
+                    createBlock(x4, spawnY);
+                    x4 += wallW;
+                }
+                break;
+            case 5: // Gran barra con hueco mínimo
+                const gapX5 = Phaser.Math.Between(50, portraitWidth - gapWidth - 50);
+                let x5 = wallW/2;
+                while (x5 < portraitWidth + wallW) {
+                    if (x5 < gapX5 || x5 > gapX5 + gapWidth) {
+                        createBlock(x5, spawnY);
                     }
-                    lastGapX = gapX;
-
-                    const gapW = 210;
-                    let x = wallW / 2;
-                    while (x < gapX) {
-                        const seg = this.walls.create(Math.floor(x), rowY, wallKey);
-                        seg.setDisplaySize(wallW, wallH);
-                        seg.body.setSize(wallW * 0.9, wallH * 0.9); 
-                        seg.refreshBody();
-                        seg.setDepth(10).setImmovable(true); // REQ 4
-                        seg.body.allowGravity = false;
-                        x += wallW;
+                    x5 += wallW;
+                }
+                break;
+            case 6: // Pasillo central estrecho
+                let x6 = wallW/2;
+                const hallwayW = gapWidth + 20;
+                while (x6 < portraitWidth + wallW) {
+                    if (x6 < (portraitWidth/2 - hallwayW/2) || x6 > (portraitWidth/2 + hallwayW/2)) {
+                        createBlock(x6, spawnY);
                     }
-                    x = Math.floor(gapX + gapW);
-                    x = Math.floor(x / wallW) * wallW + (wallW / 2);
-                    while (x < portraitWidth + wallW) {
-                        const seg = this.walls.create(Math.floor(x), rowY, wallKey);
-                        seg.setDisplaySize(wallW, wallH);
-                        seg.body.setSize(wallW * 0.9, wallH * 0.9);
-                        seg.refreshBody();
-                        seg.setDepth(10).setImmovable(true); // REQ 4
-                        seg.body.allowGravity = false;
-                        x += wallW;
+                    x6 += wallW;
+                }
+                break;
+            case 7: // Bloque macizo
+                const b7x = Phaser.Math.Between(100, portraitWidth-100);
+                for(let row=0; row<2; row++) {
+                    for(let col=0; col<2; col++) {
+                        createBlock(b7x + (col*wallW), spawnY + (row*wallH));
                     }
                 }
-                this.lastWallY = spawnY + ((rows-1) * 180);
-            } else {
-                // Mix de bloques sueltos
-                for (let i = 0; i < 4; i++) {
-                    const block = this.walls.create(Math.floor(Phaser.Math.Between(40, portraitWidth-40)), spawnY, wallKey);
-                    block.setDisplaySize(wallW, wallH);
-                    block.refreshBody();
-                    block.setDepth(10).setImmovable(true); // REQ 4
-                    block.body.allowGravity = false;
-                }
-            }
+                break;
         }
     }
 
@@ -1396,20 +1379,21 @@ class GameScene extends Phaser.Scene {
                 duration: 800, onComplete: () => crashText.destroy()
             });
 
-            // REQ 1: Efecto de parpadeo blindado (Alpha 0.3)
+            // REQ 3: Blindaje contra Desaparición (Ghost Recovery)
             this.tweens.add({
                 targets: player,
-                alpha: 0.3, 
-                duration: 120,
+                alpha: { from: 1, to: 0.2 }, 
+                duration: 100,
                 yoyo: true,
                 repeat: 10, 
                 onStart: () => {
-                    player.setAlpha(1);
                     player.setVisible(true);
+                    player.setAlpha(1);
                 },
                 onComplete: () => {
                     player.setAlpha(1);
                     player.isInvulnerable = false;
+                    console.log("Sistema: Jugador restaurado");
                 }
             });
         }

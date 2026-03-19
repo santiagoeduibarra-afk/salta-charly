@@ -495,7 +495,7 @@ class GameScene extends Phaser.Scene {
         this.player = this.physics.add.sprite(portraitWidth/2, 200, 'charly');
         this.player.setDisplaySize(75, 100);
         this.player.setOrigin(0.5, 0.5); 
-        this.player.setDepth(10); // REQ 2: Player siempre encima de piletas
+        this.player.setDepth(20); // REQ 2: Charly siempre arriba de los objetos piletas/walls
         this.player.body.setSize(35, 80); 
         this.player.body.setOffset(20, 10); 
         this.player.lastX = this.player.x; 
@@ -915,15 +915,15 @@ class GameScene extends Phaser.Scene {
         if (Phaser.Math.Between(1, 100) <= 85) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
-            pool.setDepth(1); // REQ 2: Pool debajo del jugador
+            pool.setDepth(5); // REQ 2: Pool al fondo del gameplay (pero sobre nubes)
             
             let scaleDrops = Math.floor(gameState.meters / 1000);
             let poolScale = Math.max(0.16, 0.33 - (scaleDrops * 0.05)); 
             pool.setScale(poolScale);
             
-            // REQ 2: Hitbox reducida al 30% y centrada
-            pool.body.setSize(pool.width * 0.3, pool.height * 0.3);
-            pool.body.setOffset(pool.width * 0.35, pool.height * 0.35);
+            // REQ 2: Hitbox al 60% y centrada
+            pool.body.setSize(pool.width * 0.6, pool.height * 0.6);
+            pool.body.setOffset(pool.width * 0.2, pool.height * 0.2);
             
             pool.refreshBody(); // Asegurar físicas
 
@@ -951,12 +951,13 @@ class GameScene extends Phaser.Scene {
         // Clouds always spawn (no UFO restriction)
         const edgeX = Phaser.Math.Between(-50, portraitWidth + 50);
         const cloud = this.clouds.create(edgeX, 900, 'fluffy_cloud');
+        cloud.setDepth(0); // REQ 2: Nubes siempre al fondo de todo
         
         cloud.speedMult = Phaser.Math.FloatBetween(0.6, 1.1); 
         cloud.setScale(Phaser.Math.FloatBetween(0.8, 2.5)); 
         
         const cloudDepth = Phaser.Math.Between(1, 25);
-        cloud.setDepth(cloudDepth);
+        // cloud.setDepth(cloudDepth); // Sobreescrito por depth 0 per requirement
         
         if (cloudDepth > 5) {
             cloud.setAlpha(Phaser.Math.FloatBetween(0.1, 0.25));
@@ -1240,14 +1241,25 @@ class GameScene extends Phaser.Scene {
     // Pools are now collectables: +50pts on touch
     collectPool(player, pool) {
         if (!pool || !pool.active) return;
-        pool.destroy(); // REQ 2: Destruir inmediatamente para prioridad de colisión
-
+        
+        // REQ 3: Suma puntos inmediatamente y animación
         const pts = 50 * gameState.multiplier;
         gameState.score += pts;
         this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
         try { this.sound.play('splash'); } catch(e) {}
-        const popup = this.add.text(player.x, player.y - 50, '+' + pts, { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(30);
+
+        const popup = this.add.text(player.x, player.y - 50, '+' + pts, { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(101);
         this.tweens.add({ targets: popup, y: popup.y - 60, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
+
+        // Animación de la pileta REQ 3
+        pool.body.enable = false; // Desactivar física para evitar doble trigger
+        this.tweens.add({
+            targets: pool,
+            scale: pool.scale * 1.5,
+            alpha: 0,
+            duration: 200,
+            onComplete: () => { pool.destroy(); }
+        });
     }
 
     // New obstacle: wall segments with progress difficulty
@@ -1269,7 +1281,7 @@ class GameScene extends Phaser.Scene {
                 block.setDisplaySize(wallW, wallH);
                 block.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
                 block.refreshBody();
-                block.setDepth(15).setImmovable(true);
+                block.setDepth(10).setImmovable(true); // REQ 4: Paredes depth intermedio
                 block.body.allowGravity = false;
             }
         } 
@@ -1328,9 +1340,9 @@ class GameScene extends Phaser.Scene {
                     while (x < gapX) {
                         const seg = this.walls.create(Math.floor(x), rowY, wallKey);
                         seg.setDisplaySize(wallW, wallH);
-                        seg.body.setSize(wallW * 0.9, wallH * 0.9); // REQ 2: Hitbox un 10% menor
+                        seg.body.setSize(wallW * 0.9, wallH * 0.9); 
                         seg.refreshBody();
-                        seg.setDepth(15).setImmovable(true);
+                        seg.setDepth(10).setImmovable(true); // REQ 4
                         seg.body.allowGravity = false;
                         x += wallW;
                     }
@@ -1339,9 +1351,9 @@ class GameScene extends Phaser.Scene {
                     while (x < portraitWidth + wallW) {
                         const seg = this.walls.create(Math.floor(x), rowY, wallKey);
                         seg.setDisplaySize(wallW, wallH);
-                        seg.body.setSize(wallW * 0.9, wallH * 0.9); // REQ 2: Hitbox un 10% menor
+                        seg.body.setSize(wallW * 0.9, wallH * 0.9);
                         seg.refreshBody();
-                        seg.setDepth(15).setImmovable(true);
+                        seg.setDepth(10).setImmovable(true); // REQ 4
                         seg.body.allowGravity = false;
                         x += wallW;
                     }
@@ -1353,7 +1365,7 @@ class GameScene extends Phaser.Scene {
                     const block = this.walls.create(Math.floor(Phaser.Math.Between(40, portraitWidth-40)), spawnY, wallKey);
                     block.setDisplaySize(wallW, wallH);
                     block.refreshBody();
-                    block.setDepth(15).setImmovable(true);
+                    block.setDepth(10).setImmovable(true); // REQ 4
                     block.body.allowGravity = false;
                 }
             }
@@ -1384,21 +1396,20 @@ class GameScene extends Phaser.Scene {
                 duration: 800, onComplete: () => crashText.destroy()
             });
 
-            // REQ 1: Efecto de parpadeo blindado (Alpha 0.2)
+            // REQ 1: Efecto de parpadeo blindado (Alpha 0.3)
             this.tweens.add({
                 targets: player,
-                alpha: 0.2, // Ghosting sutil pero visible
-                duration: 100,
+                alpha: 0.3, 
+                duration: 120,
                 yoyo: true,
-                repeat: 8, // Parpadea por 1.6 segundos
+                repeat: 10, 
                 onStart: () => {
+                    player.setAlpha(1);
                     player.setVisible(true);
                 },
                 onComplete: () => {
                     player.setAlpha(1);
                     player.isInvulnerable = false;
-                    // Reactivar collider si se desactivó
-                    if (this.wallCollider) this.wallCollider.active = true;
                 }
             });
         }

@@ -548,7 +548,7 @@ class GameScene extends Phaser.Scene {
 
         // REQ 2 & 3: dedicated timers that never stop
         this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
-        this.time.addEvent({ delay: 3000, callback: this.spawnPools, callbackScope: this, loop: true });
+        this.time.addEvent({ delay: 1500, callback: this.spawnPools, callbackScope: this, loop: true }); // REQ 3: Lluvia de piletas (1500ms)
         this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
         // Walls spawn every 3500ms
         this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
@@ -908,10 +908,8 @@ class GameScene extends Phaser.Scene {
 
         console.log("Intentando spawnear pileta. Estado UFO:", this.ufoState);
 
-        // REQ: Clearance simplificado a 150px
         const spawnY_Pool = 900;
-        const distToWall = this.lastWallY ? Math.abs(spawnY_Pool - this.lastWallY) : 1000;
-        if (distToWall < 150) return;
+        // REQ 3: Eliminamos restricción con paredes para saturar el mapa de ítems
 
         // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
@@ -1237,7 +1235,8 @@ class GameScene extends Phaser.Scene {
     // Pools are now collectables: +50pts on touch
     collectPool(player, pool) {
         if (!pool || !pool.active) return;
-        pool.destroy();
+        pool.destroy(); // REQ 2: Destruir inmediatamente para prioridad de colisión
+
         const pts = 50 * gameState.multiplier;
         gameState.score += pts;
         this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
@@ -1263,6 +1262,7 @@ class GameScene extends Phaser.Scene {
                 const rx = Math.floor(Phaser.Math.Between(50, portraitWidth - 50));
                 const block = this.walls.create(rx, spawnY, wallKey);
                 block.setDisplaySize(wallW, wallH);
+                block.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
                 block.refreshBody();
                 block.setDepth(15).setImmovable(true);
                 block.body.allowGravity = false;
@@ -1277,6 +1277,7 @@ class GameScene extends Phaser.Scene {
             while (x < gapX) {
                 const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
                 seg.setDisplaySize(wallW, wallH);
+                seg.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
                 seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
@@ -1289,6 +1290,7 @@ class GameScene extends Phaser.Scene {
             while (x < portraitWidth + wallW) {
                 const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
                 seg.setDisplaySize(wallW, wallH);
+                seg.body.setSize(wallW * 0.9, wallH * 0.9); // Hitbox un 10% menor
                 seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
@@ -1321,6 +1323,7 @@ class GameScene extends Phaser.Scene {
                     while (x < gapX) {
                         const seg = this.walls.create(Math.floor(x), rowY, wallKey);
                         seg.setDisplaySize(wallW, wallH);
+                        seg.body.setSize(wallW * 0.9, wallH * 0.9); // REQ 2: Hitbox un 10% menor
                         seg.refreshBody();
                         seg.setDepth(15).setImmovable(true);
                         seg.body.allowGravity = false;
@@ -1331,6 +1334,7 @@ class GameScene extends Phaser.Scene {
                     while (x < portraitWidth + wallW) {
                         const seg = this.walls.create(Math.floor(x), rowY, wallKey);
                         seg.setDisplaySize(wallW, wallH);
+                        seg.body.setSize(wallW * 0.9, wallH * 0.9); // REQ 2: Hitbox un 10% menor
                         seg.refreshBody();
                         seg.setDepth(15).setImmovable(true);
                         seg.body.allowGravity = false;
@@ -1375,16 +1379,20 @@ class GameScene extends Phaser.Scene {
                 duration: 800, onComplete: () => crashText.destroy()
             });
 
-            // REQ: Efecto de parpadeo robusto (Alpha 0/1, repeat 10)
+            // REQ 1: Efecto de parpadeo robusto con Tinte Rojo
             this.tweens.add({
                 targets: player,
-                alpha: 0,
+                alpha: { from: 1, to: 0 },
                 duration: 100,
                 yoyo: true,
-                repeat: 10,
+                repeat: 8, // 1.6 segundos
+                onStart: () => {
+                    player.setVisible(true);
+                    player.setTint(0xff0000); // Tinte rojo de daño
+                },
                 onComplete: () => {
                     player.setAlpha(1);
-                    player.setVisible(true);
+                    player.clearTint();
                     player.isInvulnerable = false;
                     // Reactivar collider si se desactivó
                     if (this.wallCollider) this.wallCollider.active = true;

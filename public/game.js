@@ -1141,6 +1141,7 @@ class GameScene extends Phaser.Scene {
     spawnWalls() {
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
         const spawnY = 950;
+        const wallW = 60; // Ancho forzado para la grilla
         
         // Fase 1: 0 - 1000m (Obstáculos simples sueltos)
         if (gameState.meters < 1000) {
@@ -1148,6 +1149,8 @@ class GameScene extends Phaser.Scene {
             for (let i = 0; i < count; i++) {
                 const rx = Phaser.Math.Between(50, portraitWidth - 50);
                 const block = this.walls.create(rx, spawnY, wallKey);
+                block.setDisplaySize(wallW, wallW);
+                block.refreshBody();
                 block.setDepth(15).setImmovable(true);
                 block.body.allowGravity = false;
             }
@@ -1157,13 +1160,11 @@ class GameScene extends Phaser.Scene {
             const gapW = 220; // Hueco amplio para Charly y banana
             const gapX = Phaser.Math.Between(50, portraitWidth - gapW - 50);
             
-            // Usamos el ancho de la textura para llenar la fila
-            const wallTexture = this.textures.get(wallKey).getSourceImage();
-            const wallW = wallTexture.width || 60;
-            
             let x = wallW / 2;
             while (x < gapX) {
                 const seg = this.walls.create(x, spawnY, wallKey);
+                seg.setDisplaySize(wallW, wallW);
+                seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
                 x += wallW;
@@ -1171,6 +1172,8 @@ class GameScene extends Phaser.Scene {
             x = gapX + gapW;
             while (x < portraitWidth + wallW) {
                 const seg = this.walls.create(x, spawnY, wallKey);
+                seg.setDisplaySize(wallW, wallW);
+                seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
                 x += wallW;
@@ -1182,12 +1185,12 @@ class GameScene extends Phaser.Scene {
             if (isLine) {
                 const gapW = 200; // Hueco un poco más ajustado pero justo
                 const gapX = Phaser.Math.Between(40, portraitWidth - gapW - 40);
-                const wallTexture = this.textures.get(wallKey).getSourceImage();
-                const wallW = wallTexture.width || 60;
 
                 let x = wallW / 2;
                 while (x < gapX) {
                     const seg = this.walls.create(x, spawnY, wallKey);
+                    seg.setDisplaySize(wallW, wallW);
+                    seg.refreshBody();
                     seg.setDepth(15).setImmovable(true);
                     seg.body.allowGravity = false;
                     x += wallW;
@@ -1195,6 +1198,8 @@ class GameScene extends Phaser.Scene {
                 x = gapX + gapW;
                 while (x < portraitWidth + wallW) {
                     const seg = this.walls.create(x, spawnY, wallKey);
+                    seg.setDisplaySize(wallW, wallW);
+                    seg.refreshBody();
                     seg.setDepth(15).setImmovable(true);
                     seg.body.allowGravity = false;
                     x += wallW;
@@ -1203,6 +1208,8 @@ class GameScene extends Phaser.Scene {
                 // Mix de bloques sueltos
                 for (let i = 0; i < 4; i++) {
                     const block = this.walls.create(Phaser.Math.Between(40, portraitWidth-40), spawnY, wallKey);
+                    block.setDisplaySize(wallW, wallW);
+                    block.refreshBody();
                     block.setDepth(15).setImmovable(true);
                     block.body.allowGravity = false;
                 }

@@ -465,9 +465,9 @@ class GameScene extends Phaser.Scene {
 
         // UFO State Machine: REQ 1 Procedural targets for pacing
         this.ufoTargets = [
-            Phaser.Math.Between(500, 1000),   // Primera aparición
-            Phaser.Math.Between(2000, 5000),  // Segunda aparición
-            Phaser.Math.Between(6000, 10000)  // Tercera aparición (Ajustado rango)
+            Phaser.Math.Between(800, 1200),   // Primera abducción
+            Phaser.Math.Between(2700, 4000),  // Segunda abducción (mínimo 1500m después)
+            Phaser.Math.Between(5500, 8000)   // Tercera abducción (mínimo 1500m después)
         ];
         this.currentUfoIndex = 0;
         this.ufoState = 'IDLE'; // 'IDLE' | 'WARNING' | 'ACTIVE'
@@ -906,11 +906,14 @@ class GameScene extends Phaser.Scene {
         // REQ 2: Solo se spawnean piletas si el estado es IDLE
         if (this.ufoState !== 'IDLE' || this.pendingUfo) return;
 
+        console.log("Intentando spawnear pileta. Estado UFO:", this.ufoState);
+
         // REQ 4: Clearance entre Paredes y Piletas (evitar situaciones injustas)
         const spawnY_Pool = 900;
-        if (Math.abs(spawnY_Pool - this.lastWallY) < 250) return;
+        if (this.lastWallY !== 0 && Math.abs(spawnY_Pool - this.lastWallY) < 250) return;
 
-        if (Phaser.Math.Between(1, 10) <= 7) {
+        // REQ 3: Aumentar frecuencia ~20% (era 7/10, ahora 8.5/10 aprox)
+        if (Phaser.Math.Between(1, 100) <= 85) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
             pool.setDepth(1); 
@@ -928,8 +931,8 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnPeaceSigns() {
-        // REQ 3: Peace signs always spawn (no UFO restriction)
-        if (Phaser.Math.Between(1, 10) <= 4) {
+        // REQ 3: Aumentar frecuencia ~20% (era 4/10, ahora 5/10 aprox)
+        if (Phaser.Math.Between(1, 10) <= 5) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
             const peace = this.peaceItems.create(peaceX, 1000, 'peace');
             const scaleFactor = 45 / peace.width;
@@ -990,14 +993,19 @@ class GameScene extends Phaser.Scene {
             const targetMeters = this.ufoTargets[this.currentUfoIndex];
 
             // FASE WARNING: 200m antes del target, frenar spawners
-            if (gameState.meters >= (targetMeters - 200) && this.ufoState === 'IDLE') {
+            if (gameState.meters >= targetMeters && this.ufoState === 'IDLE') {
+                console.log('STATE CHANGE: IDLE -> WARNING');
                 this.ufoState = 'WARNING';
+                // Consumir el índice inmediatamente para evitar bucle de frames
+                this.currentUfoIndex++; 
                 // REQ 3: Limpiar vacas existentes para dejar espacio al UFO
                 if (this.cows) this.cows.clear(true, true);
+                
+                // Trigger natural: el UFO aparecerá en la siguiente validación
             }
 
-            // FASE ACTIVE: llegamos al target, instanciar UFO
-            if (gameState.meters >= targetMeters && this.ufoState === 'WARNING') {
+            if (this.ufoState === 'WARNING') {
+                console.log('STATE CHANGE: WARNING -> ACTIVE');
                 this.ufoState = 'ACTIVE';
                 this.spawnUFO();
             }
@@ -1164,10 +1172,11 @@ class GameScene extends Phaser.Scene {
                 if (this.ufo && this.ufo.active) { this.ufo.destroy(); }
                 this.ufo = null;
                 this.ufoActive = false;
+                
+                console.log('STATE CHANGE: ACTIVE -> IDLE');
                 this.ufoState = 'IDLE';            // Vuelven vacas y piletas
                 this.lastWallY = 0;                 // REQ 2: Limpiar conciencia espacial
-                this.currentUfoIndex++;             // Avanzar al siguiente target
-
+                                
                 // BUG FIX: Asegurar restauración completa del jugador
                                 if (this.player) {
                                     // REQ 1: Usar altura memorizada y X absoluta

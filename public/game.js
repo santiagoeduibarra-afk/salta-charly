@@ -770,9 +770,11 @@ class GameScene extends Phaser.Scene {
         
         if (this.player.setTintFill) { this.player.setTintFill(0xffffff); }
         
-        // REQ 1: Memorizar X absoluta y altura relativa
+        // REQ 1: Memorizar X absoluta, altura relativa y escala para evitar glitches
         this.savedX = this.player.x;
         this.savedRelativeY = this.player.y - this.cameras.main.scrollY;
+        this.savedScaleX = this.player.scaleX;
+        this.savedScaleY = this.player.scaleY;
 
         this.tweens.add({
             targets: this.player,
@@ -834,12 +836,23 @@ class GameScene extends Phaser.Scene {
                                         duration: 600,
                                         ease: 'Cubic.out',
                                         onComplete: () => {
-                                            // REQ 2: Asegurar restauración de escala y física
-                                            this.player.setScale(1);
+                                            // REQ 1: Restaurar escala original exacta
+                                            if (this.savedScaleX && this.savedScaleY) {
+                                                this.player.setScale(this.savedScaleX, this.savedScaleY);
+                                            } else {
+                                                this.player.setScale(1);
+                                            }
                                             this.player.refreshBody();
                                             
+                                            // REQ 3: Sincronización del Bonus Mode (UfoState -> IDLE primero)
                                             this.isAbducted = false;
+                                            this.ufoState = 'IDLE'; // Reactiva spawners de fondo
                                             this.ufo.state = 'leaving';
+
+                                            // Forzar oleada inmediata para aprovechar el 10X
+                                            this.spawnPools();
+                                            this.spawnPeaceSigns();
+                                            this.spawnCow();
 
                                             const popup = this.add.text(portraitWidth/2, portraitHeight/2, '10X MODE!', { fontSize: '40px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 8 }).setOrigin(0.5).setDepth(30);
                                             this.tweens.add({ targets: popup, scaleX: 1.5, scaleY: 1.5, alpha: 0, duration: 2000, onComplete: () => popup.destroy() });
@@ -982,6 +995,12 @@ class GameScene extends Phaser.Scene {
                 this.ufoState = 'ACTIVE';
                 this.spawnUFO();
             }
+        }
+
+        // REQ 2: Failsafe post-UFO (Evitar el Vacío)
+        if (this.ufoState !== 'IDLE' && this.ufoState !== 'WARNING' && (!this.ufo || !this.ufo.active)) {
+            console.warn('Failsafe activado: UFO no existe, forzando estado a IDLE');
+            this.ufoState = 'IDLE'; 
         }
 
         if (gameState.meters - this.lastBananaSpawnMeter >= 800) {
@@ -1151,8 +1170,12 @@ class GameScene extends Phaser.Scene {
                                     
                                     this.player.enableBody(true, safeX, safeY, true, true);
                                     
-                                    // REQ 2: Forzar escala original para que no se quede pequeño (shrink bug)
-                                    this.player.setScale(1);
+                                    // REQ 1: Usar escala memorizada para evitar el scale glitch
+                                    if (this.savedScaleX && this.savedScaleY) {
+                                        this.player.setScale(this.savedScaleX, this.savedScaleY);
+                                    } else {
+                                        this.player.setScale(1);
+                                    }
                                     this.player.refreshBody();
 
                                     this.player.setAlpha(1);

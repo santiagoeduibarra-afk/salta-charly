@@ -515,12 +515,12 @@ class GameScene extends Phaser.Scene {
             }).setOrigin(0.5).setScrollFactor(0).setDepth(101);
         }
 
-        this.meterText = this.add.text(20, 30, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setDepth(30);
-        this.scoreText = this.add.text(20, 65, 'SCORE: 0', { fontSize: '16px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 3 }).setDepth(30);
+        this.meterText = this.add.text(20, 30, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setScrollFactor(0).setDepth(100);
+        this.scoreText = this.add.text(20, 65, 'SCORE: 0', { fontSize: '16px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 3 }).setScrollFactor(0).setDepth(100);
 
         // Multiplayer UI indicator
         if (gameState.currentRoom && socket) {
-            this.otherMetersText = this.add.text(portraitWidth - 20, 30, '', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#FFF', stroke: '#000', strokeThickness: 2, align: 'right' }).setOrigin(1, 0).setDepth(30);
+            this.otherMetersText = this.add.text(portraitWidth - 20, 30, '', { fontSize: '12px', fontFamily: '"Press Start 2P"', color: '#FFF', stroke: '#000', strokeThickness: 2, align: 'right' }).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
             
             socket.on('game_state_update', (data) => {
                 otherPlayers[data.id] = data;
@@ -593,7 +593,8 @@ class GameScene extends Phaser.Scene {
     updateHeartsUI() {
         this.heartIcons.clear(true, true);
         for(let i=0; i<gameState.lives; i++) {
-            this.heartIcons.create(portraitWidth - 40 - (i*40), 50, 'heart').setScale(1.5).setDepth(30);
+            this.heartIcons.create(portraitWidth - 40 - (i*40), 50, 'heart')
+                .setScale(1.5).setScrollFactor(0).setDepth(100);
         }
     }
 
@@ -772,6 +773,8 @@ class GameScene extends Phaser.Scene {
             duration: 1200,
             ease: 'Cubic.in',
             onComplete: () => {
+                // REQ 3: NUNCA destruir al jugador. Usar disableBody para apagar físicas pero mantenerlo vivo.
+                this.player.disableBody(true, true);
                 
                 this.ufo.setTexture('ufo1');
                 this.ufo.state = 'leaving_temp'; 
@@ -803,8 +806,9 @@ class GameScene extends Phaser.Scene {
                                 onComplete: () => {
                                     this.ufo.state = 'abducting'; 
                                     
-                                    this.player.x = this.ufo.x;
-                                    this.player.y = this.ufo.y + 5; 
+                                    // REQ 3: Restaurar cuerpo físico antes del tween de reaparición
+                                    this.player.enableBody(true, this.ufo.x, this.ufo.y + 5, true, true);
+                                    this.player.alpha = 0; // Se vuelve visible en el tween siguiente
                                     
                                     if (this.player.clearTint) { this.player.clearTint(); }
                                     
@@ -1114,12 +1118,18 @@ class GameScene extends Phaser.Scene {
                 this.ufoState = 'IDLE';            // Vuelven vacas y piletas
                 this.currentUfoIndex++;             // Avanzar al siguiente target
 
-                // BUG FIX: Asegurar que Charly vuelva a ser visible y activo si se rompió el ciclo
+                // BUG FIX: Asegurar restauración completa del jugador
                 if (this.player) {
+                    const safeY = this.cameras.main.scrollY + 150;
+                    const safeX = this.cameras.main.centerX;
+                    
+                    this.player.enableBody(true, safeX, safeY, true, true);
                     this.player.setAlpha(1);
                     this.player.setVisible(true);
-                    this.player.body.enable = true;
                     this.player.setActive(true);
+                    this.player.setVelocity(0, 0); // Reset inercia
+                    this.player.isInvulnerable = false; // Limpiar I-Frames
+
                     // Asegurar cámara
                     this.cameras.main.startFollow(this.player, true, 0.05, 0.05);
                 }

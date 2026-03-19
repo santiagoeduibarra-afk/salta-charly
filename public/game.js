@@ -576,7 +576,7 @@ class GameScene extends Phaser.Scene {
         // Pools are now collectables: award points on touch
         this.physics.add.overlap(this.player, this.pools, this.collectPool, null, this);
         // Walls are lethal obstacles
-        this.wallCollider = this.physics.add.collider(this.player, this.walls, this.hitWall, null, this);
+        this.wallCollider = this.physics.add.collider(this.player, this.walls, this.wallHitCallback, null, this);
 
         } catch (error) {
             console.error('❌ CRITICAL ERROR en GameScene.create():', error);
@@ -908,9 +908,9 @@ class GameScene extends Phaser.Scene {
 
         const spawnY_Pool = 900;
         
-        // REQ 2: Zona de Seguridad (Proteger de spawns sobre paredes)
-        const wallNearby = this.walls.getChildren().some(w => Math.abs(w.y - spawnY_Pool) < 100);
-        if (wallNearby) return; // Abortar spawn si hay una pared a menos de 100px
+        // REQ 3: Conciencia Espacial (Proteger de spawns sobre paredes - 150px buffer)
+        const wallNearby = this.walls.getChildren().some(w => Math.abs(w.y - spawnY_Pool) < 150);
+        if (wallNearby) return; 
 
         // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
@@ -1241,11 +1241,10 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: popup, y: popup.y - 50, alpha: 0, duration: 800, onComplete: () => popup.destroy() });
     }
 
-    // Pools are now collectables: +50pts on touch
+    // REQ 4: Pool Splash & Fade
     collectPool(player, pool) {
         if (!pool || !pool.active) return;
         
-        // REQ 3: Suma puntos inmediatamente y animación
         const pts = 50 * gameState.multiplier;
         gameState.score += pts;
         this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
@@ -1254,13 +1253,32 @@ class GameScene extends Phaser.Scene {
         const popup = this.add.text(player.x, player.y - 50, '+' + pts, { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(101);
         this.tweens.add({ targets: popup, y: popup.y - 60, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
 
-        // Animación de la pileta REQ 3
-        pool.body.enable = false; // Desactivar física para evitar doble trigger
+        pool.disableBody(true, false); // Desactiva físicas pero mantiene el bloque para animar
+
+        // Animación de Charly REQ 4
+        this.tweens.add({
+            targets: player,
+            scaleX: player.scaleX * 0.5,
+            scaleY: player.scaleY * 0.5,
+            alpha: 0.5,
+            duration: 200,
+            yoyo: true,
+            onComplete: () => {
+                if (this.savedScaleX && this.savedScaleY) {
+                    player.setScale(this.savedScaleX, this.savedScaleY);
+                } else {
+                    player.setScale(1);
+                }
+                player.setAlpha(1);
+            }
+        });
+
+        // Animación de la pileta REQ 4
         this.tweens.add({
             targets: pool,
-            scale: pool.scale * 1.5,
+            scale: pool.scale * 2.0,
             alpha: 0,
-            duration: 200,
+            duration: 300,
             onComplete: () => { pool.destroy(); }
         });
     }
@@ -1355,10 +1373,9 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    // Lethal wall collision: lose 1 life, show neon CRASH!!!, blink invulnerability
-    hitWall(player, wall) {
+    // REQ 2: wallHitCallback - Rescate de Charly
+    wallHitCallback(player, wall) {
         if (player.isInvulnerable) return;
-
         player.isInvulnerable = true;
         gameState.lives--;
         this.updateHeartsUI();
@@ -1366,35 +1383,33 @@ class GameScene extends Phaser.Scene {
         if (gameState.lives <= 0) {
             this.scene.start('GameOverScene');
         } else {
-            this.cameras.main.shake(200, 0.025);
+            // EFECTO DE IMPACTO REQ 2
+            this.cameras.main.shake(100, 0.01);
             
-            // Neon green CRASH!!! text
-            const crashText = this.add.text(player.x, player.y - 20, 'CRASH!!!', {
-                fontSize: '20px', fontFamily: '"Press Start 2P"',
-                fill: '#39FF14', stroke: '#000000', strokeThickness: 4
-            }).setOrigin(0.5).setDepth(200);
-            
-            this.tweens.add({
-                targets: crashText, y: crashText.y - 40, alpha: 0,
-                duration: 800, onComplete: () => crashText.destroy()
-            });
-
-            // REQ 3: Blindaje contra Desaparición (Ghost Recovery)
             this.tweens.add({
                 targets: player,
-                alpha: { from: 1, to: 0.2 }, 
-                duration: 100,
+                alpha: 0.3,
+                duration: 120,
                 yoyo: true,
-                repeat: 10, 
+                repeat: 10,
                 onStart: () => {
                     player.setVisible(true);
-                    player.setAlpha(1);
                 },
                 onComplete: () => {
                     player.setAlpha(1);
                     player.isInvulnerable = false;
                     console.log("Sistema: Jugador restaurado");
                 }
+            });
+
+            // Neon green CRASH!!! text
+            const crashText = this.add.text(player.x, player.y - 20, 'CRASH!!!', {
+                fontSize: '20px', fontFamily: '"Press Start 2P"',
+                fill: '#39FF14', stroke: '#000000', strokeThickness: 4
+            }).setOrigin(0.5).setDepth(200);
+            this.tweens.add({
+                targets: crashText, y: crashText.y - 40, alpha: 0,
+                duration: 800, onComplete: () => crashText.destroy()
             });
         }
     }

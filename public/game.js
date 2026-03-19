@@ -476,7 +476,10 @@ class GameScene extends Phaser.Scene {
         this.lastBananaSpawnMeter = 0;
         this.parachuteTimer = null;
         this.lastPeaceAudio = 0;
-        this.lastWallY = 0; // REQ 4: Para evitar superposición con piletas
+        this.lastWallY = 0; 
+        this.isWallsGracePeriod = false; // REQ 2: Flag para gracia sin pausar timer
+        this.savedX = portraitWidth / 2; // Default
+        this.savedRelativeY = 200; // Default
 
         this.cameras.main.setBackgroundColor('#87CEEB');
 
@@ -539,8 +542,9 @@ class GameScene extends Phaser.Scene {
             }, callbackScope: this, loop: true });
         }
 
-        // REQ 4: +30% spawn interval for peace signs to let audio finish
-        this.time.addEvent({ delay: 2860, callback: this.spawnObstacles, callbackScope: this, loop: true });
+        // REQ 2 & 3: dedicated timers that never stop
+        this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
+        this.time.addEvent({ delay: 3000, callback: this.spawnPools, callbackScope: this, loop: true });
         this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
         // Walls spawn every 3500ms
         this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
@@ -766,7 +770,8 @@ class GameScene extends Phaser.Scene {
         
         if (this.player.setTintFill) { this.player.setTintFill(0xffffff); }
         
-        // REQ 1: Memorizar altura relativa a la cámara antes de desaparecer
+        // REQ 1: Memorizar X absoluta y altura relativa
+        this.savedX = this.player.x;
         this.savedRelativeY = this.player.y - this.cameras.main.scrollY;
 
         this.tweens.add({
@@ -821,6 +826,7 @@ class GameScene extends Phaser.Scene {
                                     this.tweens.add({
                                         targets: this.player,
                                         y: this.cameras.main.scrollY + (this.savedRelativeY || 200), 
+                                        x: this.savedX || (portraitWidth / 2),
                                         displayWidth: 75,
                                         displayHeight: 100,
                                         angle: 0,
@@ -877,17 +883,15 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    spawnObstacles() {
-        // Only pools respect the UFO state gate (WARNING/ACTIVE clears airspace naturally)
-        const poolsAllowed = (this.ufoState === 'IDLE') && !this.pendingUfo;
-
-        const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
+    spawnPools() {
+        // REQ 2: Solo se spawnean piletas si el estado es IDLE
+        if (this.ufoState !== 'IDLE' || this.pendingUfo) return;
 
         // REQ 4: Clearance entre Paredes y Piletas (evitar situaciones injustas)
         const spawnY_Pool = 900;
         if (Math.abs(spawnY_Pool - this.lastWallY) < 250) return;
 
-        if (poolsAllowed && Phaser.Math.Between(1, 10) <= 7) {
+        if (Phaser.Math.Between(1, 10) <= 7) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
             pool.setDepth(1); 
@@ -902,8 +906,10 @@ class GameScene extends Phaser.Scene {
                 pool.moveSpeed = Phaser.Math.FloatBetween(2, 4);
             }
         }
+    }
 
-        // Peace signs always spawn (no UFO restriction)
+    spawnPeaceSigns() {
+        // REQ 3: Peace signs always spawn (no UFO restriction)
         if (Phaser.Math.Between(1, 10) <= 4) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
             const peace = this.peaceItems.create(peaceX, 1000, 'peace');
@@ -1138,10 +1144,10 @@ class GameScene extends Phaser.Scene {
 
                 // BUG FIX: Asegurar restauración completa del jugador
                                 if (this.player) {
-                                    // REQ 1: Usar altura memorizada si existe, sino 25% de la pantalla
+                                    // REQ 1: Usar altura memorizada y X absoluta
                                     const relY = (this.savedRelativeY !== undefined) ? this.savedRelativeY : (this.cameras.main.height * 0.25);
                                     const safeY = this.cameras.main.scrollY + relY;
-                                    const safeX = this.cameras.main.centerX;
+                                    const safeX = (this.savedX !== undefined) ? this.savedX : this.cameras.main.centerX;
                                     
                                     this.player.enableBody(true, safeX, safeY, true, true);
                                     
@@ -1163,13 +1169,11 @@ class GameScene extends Phaser.Scene {
                                     console.log('UFO TERMINADO, ESTADO:', this.ufoState);
                                 }
 
-                // Dar 2.5s de gracia para que no aparezcan paredes de golpe
-                if (this.wallsTimer) {
-                    this.wallsTimer.paused = true;
-                    this.time.delayedCall(2500, () => {
-                        if (this.wallsTimer) this.wallsTimer.paused = false;
-                    });
-                }
+                // REQ 2: NUNCA pausar timers. Usar flag de gracia.
+                this.isWallsGracePeriod = true;
+                this.time.delayedCall(2500, () => {
+                    this.isWallsGracePeriod = false;
+                });
             }
         }
     }
@@ -1201,7 +1205,7 @@ class GameScene extends Phaser.Scene {
 
     // New obstacle: wall segments with progress difficulty
     spawnWalls() {
-        if (this.ufoState !== 'IDLE') return; // Respetar espacio aéreo del UFO
+        if (this.ufoState !== 'IDLE' || this.isWallsGracePeriod) return; // Respetar UFO y gracia
 
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
         const spawnY = 950;

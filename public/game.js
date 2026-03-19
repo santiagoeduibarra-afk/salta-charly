@@ -598,7 +598,6 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnBanana() {
-        if (this.ufoState !== 'IDLE') return;
         const xPos = Phaser.Math.Between(50, portraitWidth - 50);
         const banana = this.bananas.create(xPos, 1000, 'banana1'); 
         banana.setDisplaySize(170, 170); 
@@ -956,14 +955,14 @@ class GameScene extends Phaser.Scene {
 
         if (gameState.meters - this.lastBananaSpawnMeter >= 800) {
             this.lastBananaSpawnMeter = gameState.meters;
-            if (this.ufoState === 'IDLE' && !this.isTrippyMode && !this.isAbducted && !this.hasParachute) {
+            if (!this.isTrippyMode && !this.isAbducted && !this.hasParachute) {
                 this.spawnBanana();
             }
         }
 
         if (gameState.meters - this.lastCowSpawnMeter >= 500) {
             this.lastCowSpawnMeter = gameState.meters;
-            if (this.ufoState === 'IDLE' && !this.isTrippyMode && !this.isAbducted) {
+            if (!this.isTrippyMode && !this.isAbducted) {
                 const cowCount = Phaser.Math.Between(1, 3);
                 for (let i = 0; i < cowCount; i++) {
                     this.time.delayedCall(i * 600, () => { this.spawnCow(); });
@@ -1171,6 +1170,9 @@ class GameScene extends Phaser.Scene {
         this.isInvulnerable = true;
         this.cameras.main.shake(200, 0.025);
 
+        // REQ: Disable collider temporarily so life isn't lost multiple times
+        if (this.wallCollider) this.wallCollider.active = false;
+
         gameState.lives--;
         this.updateHeartsUI();
 
@@ -1189,13 +1191,14 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
-        // Blink invulnerability for 2 seconds
+        // Blink invulnerability for ~2 seconds (8 cycles of 250ms yoyo)
         this.tweens.add({
             targets: player, alpha: 0,
-            duration: 120, yoyo: true, repeat: 7,
+            duration: 125, yoyo: true, repeat: 7,
             onComplete: () => {
                 player.setAlpha(1);
                 this.isInvulnerable = false;
+                if (this.wallCollider) this.wallCollider.active = true;
             }
         });
     }

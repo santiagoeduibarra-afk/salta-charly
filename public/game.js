@@ -1014,6 +1014,8 @@ class GameScene extends Phaser.Scene {
             }
             this.player.x = Phaser.Math.Clamp(this.player.x, 37.5, portraitWidth - 37.5);
             deltaX = this.player.x - this.player.lastX;
+            // REQ 1: Asegurar que la cámara no se desplace en X
+            this.cameras.main.scrollX = 0;
         }
 
         let currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
@@ -1120,7 +1122,7 @@ class GameScene extends Phaser.Scene {
 
                 // BUG FIX: Asegurar restauración completa del jugador
                 if (this.player) {
-                    const safeY = this.cameras.main.scrollY + 150;
+                    const safeY = this.cameras.main.scrollY + (this.cameras.main.height * 0.25);
                     const safeX = this.cameras.main.centerX;
                     
                     this.player.enableBody(true, safeX, safeY, true, true);
@@ -1130,8 +1132,8 @@ class GameScene extends Phaser.Scene {
                     this.player.setVelocity(0, 0); // Reset inercia
                     this.player.isInvulnerable = false; // Limpiar I-Frames
 
-                    // Asegurar cámara
-                    this.cameras.main.startFollow(this.player, true, 0.05, 0.05);
+                    // REQ 1: startFollow(player, true, 0, 1) para evitar wobble horizontal
+                    this.cameras.main.startFollow(this.player, true, 0, 1);
                 }
 
                 // Dar 2.5s de gracia para que no aparezcan paredes de golpe
@@ -1556,6 +1558,8 @@ class GameOverScene extends Phaser.Scene {
 
 const config = {
     type: Phaser.CANVAS,
+    pixelArt: true,
+    roundPixels: true,
     clearBeforeRender: true,
     width: portraitWidth,
     height: portraitHeight,

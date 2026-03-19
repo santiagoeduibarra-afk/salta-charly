@@ -843,11 +843,8 @@ class GameScene extends Phaser.Scene {
                                         ease: 'Cubic.out',
                                         onComplete: () => {
                                             // REQ 1: Restaurar escala original exacta
-                                            if (this.savedScaleX && this.savedScaleY) {
-                                                this.player.setScale(this.savedScaleX, this.savedScaleY);
-                                            } else {
-                                                this.player.setScale(1);
-                                            }
+                                            this.player.setScale(this.savedScaleX || (75/this.player.width), this.savedScaleY || (100/this.player.height));
+                                            this.player.alpha = 1;
                                             this.player.refreshBody();
                                             
                                             // REQ 3: Sincronización del Bonus Mode (UfoState -> IDLE primero)
@@ -1143,10 +1140,10 @@ class GameScene extends Phaser.Scene {
             }
         });
 
-        // Walls velocity
+        // REQ 2: Movimiento estrictamente por velocidad (Arcade Physics)
         if (this.walls) {
             this.walls.getChildren().forEach(w => {
-                if (w.active) w.setVelocityY(-actualSpeed);
+                if (w.active) w.body.setVelocityY(-actualSpeed);
             });
         }
         
@@ -1263,7 +1260,9 @@ class GameScene extends Phaser.Scene {
             duration: 200,
             yoyo: true,
             onComplete: () => {
-                player.setScale(this.savedScaleX || 1, this.savedScaleY || 1);
+                const defaultSX = 75 / player.width;
+                const defaultSY = 100 / player.height;
+                player.setScale(this.savedScaleX || defaultSX, this.savedScaleY || defaultSY);
                 player.alpha = 1;
             }
         });
@@ -1310,6 +1309,7 @@ class GameScene extends Phaser.Scene {
             b.body.setSize(wallW * 0.9, wallH * 0.9);
             b.body.setImmovable(true);
             b.body.setAllowGravity(false);
+            b.body.setVelocityY(-(gameState.baseSpeed || 400)); // REQ 2: Velocidad inicial
             b.refreshBody(); // Sincroniza hitbox
             b.setDepth(10);
             return b;

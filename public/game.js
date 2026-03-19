@@ -542,7 +542,7 @@ class GameScene extends Phaser.Scene {
         this.time.addEvent({ delay: 2860, callback: this.spawnObstacles, callbackScope: this, loop: true });
         this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
         // Walls spawn every 3500ms
-        this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
+        this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
         
         this.time.addEvent({ delay: 60000, callback: () => {
             if (!this.ufoActive && !this.isTrippyMode && !this.isAbducted) {
@@ -704,6 +704,11 @@ class GameScene extends Phaser.Scene {
     spawnUFO() {
         if (this.ufoState !== 'ACTIVE') return; // Only spawn when state machine is in ACTIVE
         if (this.isTrippyMode) return;
+
+        // Ensure player is at least visible when event starts
+        this.player.setAlpha(1);
+        this.player.setVisible(true);
+        this.player.body.enable = true;
 
         try { this.sound.play('ufo_sound'); } catch(e) {}
         
@@ -1108,6 +1113,24 @@ class GameScene extends Phaser.Scene {
                 this.ufoActive = false;
                 this.ufoState = 'IDLE';            // Vuelven vacas y piletas
                 this.currentUfoIndex++;             // Avanzar al siguiente target
+
+                // BUG FIX: Asegurar que Charly vuelva a ser visible y activo si se rompió el ciclo
+                if (this.player) {
+                    this.player.setAlpha(1);
+                    this.player.setVisible(true);
+                    this.player.body.enable = true;
+                    this.player.setActive(true);
+                    // Asegurar cámara
+                    this.cameras.main.startFollow(this.player, true, 0.05, 0.05);
+                }
+
+                // Dar 2.5s de gracia para que no aparezcan paredes de golpe
+                if (this.wallsTimer) {
+                    this.wallsTimer.paused = true;
+                    this.time.delayedCall(2500, () => {
+                        if (this.wallsTimer) this.wallsTimer.paused = false;
+                    });
+                }
             }
         }
     }
@@ -1139,17 +1162,20 @@ class GameScene extends Phaser.Scene {
 
     // New obstacle: wall segments with progress difficulty
     spawnWalls() {
+        if (this.ufoState !== 'IDLE') return; // Respetar espacio aéreo del UFO
+
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
         const spawnY = 950;
-        const wallW = 60; // Ancho forzado para la grilla
-        
+        const wallW = 60; // Ancho estricto
+        const wallH = 40; // Alto estricto para look de ladrillo
+
         // Fase 1: 0 - 1000m (Obstáculos simples sueltos)
         if (gameState.meters < 1000) {
             const count = Phaser.Math.Between(1, 2);
             for (let i = 0; i < count; i++) {
-                const rx = Phaser.Math.Between(50, portraitWidth - 50);
+                const rx = Math.floor(Phaser.Math.Between(50, portraitWidth - 50));
                 const block = this.walls.create(rx, spawnY, wallKey);
-                block.setDisplaySize(wallW, wallW);
+                block.setDisplaySize(wallW, wallH);
                 block.refreshBody();
                 block.setDepth(15).setImmovable(true);
                 block.body.allowGravity = false;
@@ -1157,22 +1183,25 @@ class GameScene extends Phaser.Scene {
         } 
         // Fase 2: 1000m - 2500m (Líneas horizontales con un hueco garantizado)
         else if (gameState.meters < 2500) {
-            const gapW = 220; // Hueco amplio para Charly y banana
-            const gapX = Phaser.Math.Between(50, portraitWidth - gapW - 50);
+            const gapW = 230; // Hueco amplio (casi 4 bloques)
+            const gapX = Math.floor(Phaser.Math.Between(50, portraitWidth - gapW - 50));
             
             let x = wallW / 2;
             while (x < gapX) {
-                const seg = this.walls.create(x, spawnY, wallKey);
-                seg.setDisplaySize(wallW, wallW);
+                const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
+                seg.setDisplaySize(wallW, wallH);
                 seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
                 x += wallW;
             }
-            x = gapX + gapW;
+            x = Math.floor(gapX + gapW);
+            // Ajustar para que el bloque después del gap calce en la grilla visual si es posible
+            x = Math.floor(x / wallW) * wallW + (wallW / 2);
+
             while (x < portraitWidth + wallW) {
-                const seg = this.walls.create(x, spawnY, wallKey);
-                seg.setDisplaySize(wallW, wallW);
+                const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
+                seg.setDisplaySize(wallW, wallH);
                 seg.refreshBody();
                 seg.setDepth(15).setImmovable(true);
                 seg.body.allowGravity = false;
@@ -1183,22 +1212,24 @@ class GameScene extends Phaser.Scene {
         else {
             const isLine = Phaser.Math.Between(1, 10) <= 7;
             if (isLine) {
-                const gapW = 200; // Hueco un poco más ajustado pero justo
-                const gapX = Phaser.Math.Between(40, portraitWidth - gapW - 40);
+                const gapW = 210; // Hueco justo
+                const gapX = Math.floor(Phaser.Math.Between(40, portraitWidth - gapW - 40));
 
                 let x = wallW / 2;
                 while (x < gapX) {
-                    const seg = this.walls.create(x, spawnY, wallKey);
-                    seg.setDisplaySize(wallW, wallW);
+                    const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
+                    seg.setDisplaySize(wallW, wallH);
                     seg.refreshBody();
                     seg.setDepth(15).setImmovable(true);
                     seg.body.allowGravity = false;
                     x += wallW;
                 }
-                x = gapX + gapW;
+                x = Math.floor(gapX + gapW);
+                x = Math.floor(x / wallW) * wallW + (wallW / 2);
+
                 while (x < portraitWidth + wallW) {
-                    const seg = this.walls.create(x, spawnY, wallKey);
-                    seg.setDisplaySize(wallW, wallW);
+                    const seg = this.walls.create(Math.floor(x), spawnY, wallKey);
+                    seg.setDisplaySize(wallW, wallH);
                     seg.refreshBody();
                     seg.setDepth(15).setImmovable(true);
                     seg.body.allowGravity = false;
@@ -1207,8 +1238,8 @@ class GameScene extends Phaser.Scene {
             } else {
                 // Mix de bloques sueltos
                 for (let i = 0; i < 4; i++) {
-                    const block = this.walls.create(Phaser.Math.Between(40, portraitWidth-40), spawnY, wallKey);
-                    block.setDisplaySize(wallW, wallW);
+                    const block = this.walls.create(Math.floor(Phaser.Math.Between(40, portraitWidth-40)), spawnY, wallKey);
+                    block.setDisplaySize(wallW, wallH);
                     block.refreshBody();
                     block.setDepth(15).setImmovable(true);
                     block.body.allowGravity = false;

@@ -903,16 +903,17 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnPools() {
-        // REQ 2: Solo se spawnean piletas si el estado es IDLE
-        if (this.ufoState !== 'IDLE' || this.pendingUfo) return;
+        // REQ: Si es IDLE, intentar spawnear siempre
+        if (this.ufoState !== 'IDLE') return;
 
         console.log("Intentando spawnear pileta. Estado UFO:", this.ufoState);
 
-        // REQ 4: Clearance entre Paredes y Piletas (evitar situaciones injustas)
+        // REQ: Clearance simplificado a 150px
         const spawnY_Pool = 900;
-        if (this.lastWallY !== 0 && Math.abs(spawnY_Pool - this.lastWallY) < 250) return;
+        const distToWall = this.lastWallY ? Math.abs(spawnY_Pool - this.lastWallY) : 1000;
+        if (distToWall < 150) return;
 
-        // REQ 3: Aumentar frecuencia ~20% (era 7/10, ahora 8.5/10 aprox)
+        // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
@@ -921,6 +922,7 @@ class GameScene extends Phaser.Scene {
             let scaleDrops = Math.floor(gameState.meters / 1000);
             let poolScale = Math.max(0.16, 0.33 - (scaleDrops * 0.05)); 
             pool.setScale(poolScale);
+            pool.refreshBody(); // Asegurar físicas
 
             pool.isMoving = Phaser.Math.Between(1, 10) <= 4;
             if (pool.isMoving) {
@@ -1012,9 +1014,11 @@ class GameScene extends Phaser.Scene {
         }
 
         // REQ 2: Failsafe post-UFO (Evitar el Vacío)
-        if (this.ufoState !== 'IDLE' && this.ufoState !== 'WARNING' && (!this.ufo || !this.ufo.active)) {
-            console.warn('Failsafe activado: UFO no existe, forzando estado a IDLE');
-            this.ufoState = 'IDLE'; 
+        if (!this.ufo || !this.ufo.active) {
+            if (this.ufoState !== 'IDLE') {
+                console.warn('Failsafe estricto: UFO inactivo, forzando IDLE');
+                this.ufoState = 'IDLE'; 
+            }
         }
 
         if (gameState.meters - this.lastBananaSpawnMeter >= 800) {
@@ -1349,51 +1353,43 @@ class GameScene extends Phaser.Scene {
 
     // Lethal wall collision: lose 1 life, show neon CRASH!!!, blink invulnerability
     hitWall(player, wall) {
-        try {
-            if (this.isInvulnerable) return;
-            this.isInvulnerable = true;
+        if (player.isInvulnerable) return;
+
+        player.isInvulnerable = true;
+        gameState.lives--;
+        this.updateHeartsUI();
+
+        if (gameState.lives <= 0) {
+            this.scene.start('GameOverScene');
+        } else {
             this.cameras.main.shake(200, 0.025);
-
-            // REQ: Disable collider temporarily so life isn't lost multiple times
-            if (this.wallCollider) this.wallCollider.active = false;
-
-            gameState.lives--;
-            this.updateHeartsUI();
-
-            // Neon green CRASH!!! text (Ajustado)
-            const crashText = this.add.text(player.x, player.y, 'CRASH!!!', {
-                fontSize: '20px', fontFamily: '"Press Start 2P", Courier',
+            
+            // Neon green CRASH!!! text
+            const crashText = this.add.text(player.x, player.y - 20, 'CRASH!!!', {
+                fontSize: '20px', fontFamily: '"Press Start 2P"',
                 fill: '#39FF14', stroke: '#000000', strokeThickness: 4
             }).setOrigin(0.5).setDepth(200);
+            
             this.tweens.add({
-                targets: crashText, y: crashText.y - 30, alpha: 0,
+                targets: crashText, y: crashText.y - 40, alpha: 0,
                 duration: 800, onComplete: () => crashText.destroy()
             });
 
-            if (gameState.lives <= 0) {
-                this.physics.pause();
-                this.player.setVisible(false);
-                if (bgMusic) bgMusic.stop(); 
-                this.scene.start('GameOverScene');
-                return;
-            }
-
-            // Blink invulnerability (I-Frames) - Charly ghosting alpha 0.2
+            // REQ: Efecto de parpadeo robusto (Alpha 0/1, repeat 10)
             this.tweens.add({
-                targets: player, alpha: 0.2,
-                duration: 150, yoyo: true, repeat: 5,
+                targets: player,
+                alpha: 0,
+                duration: 100,
+                yoyo: true,
+                repeat: 10,
                 onComplete: () => {
                     player.setAlpha(1);
-                    this.isInvulnerable = false;
-                    // REQ 4: Asegurar que el collider vuelva a estar activo
+                    player.setVisible(true);
+                    player.isInvulnerable = false;
+                    // Reactivar collider si se desactivó
                     if (this.wallCollider) this.wallCollider.active = true;
                 }
             });
-        } catch (e) {
-            console.error('Error fatal en colision con pared:', e);
-            // Salida de seguridad: restaurar invulnerabilidad si el bloque falló
-            this.isInvulnerable = false;
-            if (this.wallCollider) this.wallCollider.active = true;
         }
     }
 

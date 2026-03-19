@@ -574,9 +574,9 @@ class GameScene extends Phaser.Scene {
         this.physics.add.overlap(this.player, this.cows, this.hitCow, null, this);
         this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this);
         // Pools are now collectables: award points on touch
-        this.physics.add.overlap(this.player, this.pools, this.collectPool, null, this);
+        this.physics.add.overlap(this.player, this.pools, this.onPoolOverlap, null, this);
         // Walls are lethal obstacles
-        this.wallCollider = this.physics.add.collider(this.player, this.walls, this.wallHitCallback, null, this);
+        this.wallCollider = this.physics.add.collider(this.player, this.walls, this.onWallHit, null, this);
 
         } catch (error) {
             console.error('❌ CRITICAL ERROR en GameScene.create():', error);
@@ -903,14 +903,13 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnPools() {
-        // REQ: Si es IDLE, intentar spawnear siempre
         if (this.ufoState !== 'IDLE') return;
 
         const spawnY_Pool = 900;
         
-        // REQ 3: Conciencia Espacial (Proteger de spawns sobre paredes - 150px buffer)
-        const wallNearby = this.walls.getChildren().some(w => Math.abs(w.y - spawnY_Pool) < 150);
-        if (wallNearby) return; 
+        // REQ 4: Cero Solapamiento Estricto (200px)
+        const conflict = this.walls.getChildren().some(w => Phaser.Math.Distance.Between(portraitWidth/2, spawnY_Pool, w.x, w.y) < 200);
+        if (conflict) return; 
 
         // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
@@ -1241,39 +1240,35 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: popup, y: popup.y - 50, alpha: 0, duration: 800, onComplete: () => popup.destroy() });
     }
 
-    // REQ 4: Pool Splash & Fade
-    collectPool(player, pool) {
-        if (!pool || !pool.active) return;
+    // REQ 3: onPoolOverlap (Splash & Shrink)
+    onPoolOverlap(player, pool) {
+        if (!pool || !pool.active || pool.used) return;
+        pool.used = true; // REQ 3: Evitar doble trigger
         
-        const pts = 50 * gameState.multiplier;
-        gameState.score += pts;
+        this.score += 50;
         this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
         try { this.sound.play('splash'); } catch(e) {}
 
-        const popup = this.add.text(player.x, player.y - 50, '+' + pts, { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(101);
+        const popup = this.add.text(player.x, player.y - 50, '+50', { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(101);
         this.tweens.add({ targets: popup, y: popup.y - 60, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
 
-        pool.disableBody(true, false); // Desactiva físicas pero mantiene el bloque para animar
+        pool.disableBody(true, false);
 
-        // Animación de Charly REQ 4
+        // Animación de Charly: Inmersión REQ 3
         this.tweens.add({
             targets: player,
-            scaleX: player.scaleX * 0.5,
-            scaleY: player.scaleY * 0.5,
-            alpha: 0.5,
+            scaleX: (this.savedScaleX || 1) * 0.6,
+            scaleY: (this.savedScaleY || 1) * 0.6,
+            alpha: 0.6,
             duration: 200,
             yoyo: true,
             onComplete: () => {
-                if (this.savedScaleX && this.savedScaleY) {
-                    player.setScale(this.savedScaleX, this.savedScaleY);
-                } else {
-                    player.setScale(1);
-                }
-                player.setAlpha(1);
+                player.setScale(this.savedScaleX || 1, this.savedScaleY || 1);
+                player.alpha = 1;
             }
         });
 
-        // Animación de la pileta REQ 4
+        // Animación de la pileta: Splash REQ 3
         this.tweens.add({
             targets: pool,
             scale: pool.scale * 2.0,
@@ -1309,11 +1304,14 @@ class GameScene extends Phaser.Scene {
         
         const createBlock = (bx, by) => {
             const b = this.walls.create(bx, by, wallKey);
+            b.setOrigin(0.5);
             b.setDisplaySize(wallW, wallH);
+            this.physics.add.existing(b); // REQ 1: ¡FUERZA EXISTENCIA FÍSICA!
             b.body.setSize(wallW * 0.9, wallH * 0.9);
-            b.refreshBody();
-            b.setDepth(10).setImmovable(true);
-            b.body.allowGravity = false;
+            b.body.setImmovable(true);
+            b.body.setAllowGravity(false);
+            b.refreshBody(); // Sincroniza hitbox
+            b.setDepth(10);
             return b;
         };
 
@@ -1373,45 +1371,35 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    // REQ 2: wallHitCallback - Rescate de Charly
-    wallHitCallback(player, wall) {
+    // REQ 2: onWallHit (Safe-Hit)
+    onWallHit(player, wall) {
         if (player.isInvulnerable) return;
         player.isInvulnerable = true;
-        gameState.lives--;
+        gameState.lives -= 1;
         this.updateHeartsUI();
+
+        // EFECTO VISUAL SEGURO: Parpadeo sin ocultar
+        this.tweens.add({
+            targets: player,
+            alpha: { from: 1, to: 0.3 },
+            duration: 100,
+            yoyo: true,
+            repeat: 10,
+            onComplete: () => {
+                player.alpha = 1;
+                player.isInvulnerable = false;
+            }
+        });
 
         if (gameState.lives <= 0) {
             this.scene.start('GameOverScene');
-        } else {
-            // EFECTO DE IMPACTO REQ 2
-            this.cameras.main.shake(100, 0.01);
-            
-            this.tweens.add({
-                targets: player,
-                alpha: 0.3,
-                duration: 120,
-                yoyo: true,
-                repeat: 10,
-                onStart: () => {
-                    player.setVisible(true);
-                },
-                onComplete: () => {
-                    player.setAlpha(1);
-                    player.isInvulnerable = false;
-                    console.log("Sistema: Jugador restaurado");
-                }
-            });
-
-            // Neon green CRASH!!! text
-            const crashText = this.add.text(player.x, player.y - 20, 'CRASH!!!', {
-                fontSize: '20px', fontFamily: '"Press Start 2P"',
-                fill: '#39FF14', stroke: '#000000', strokeThickness: 4
-            }).setOrigin(0.5).setDepth(200);
-            this.tweens.add({
-                targets: crashText, y: crashText.y - 40, alpha: 0,
-                duration: 800, onComplete: () => crashText.destroy()
-            });
+            return;
         }
+
+        // Feedback extra: CRASH text
+        const crashText = this.add.text(player.x, player.y - 20, 'CRASH!!!', { fontSize: '20px', fontFamily: '"Press Start 2P"', fill: '#39FF14' }).setOrigin(0.5).setDepth(200);
+        this.tweens.add({ targets: crashText, y: crashText.y - 40, alpha: 0, duration: 800, onComplete: () => crashText.destroy() });
+        this.cameras.main.shake(100, 0.01);
     }
 
     triggerFail(player, obstacle, customText = "CRASH") {

@@ -75,6 +75,9 @@ class BootScene extends Phaser.Scene {
         this.load.image('banana1', 'assets/BANANA1.png');
         this.load.image('banana2', 'assets/BANANA2.png');
         this.load.image('banana3', 'assets/BANANA3.png');
+
+        this.load.image('wall1', 'assets/wall1.png');
+        this.load.image('wall2', 'assets/wall2.png');
     }
 
     create() {
@@ -496,6 +499,7 @@ class GameScene extends Phaser.Scene {
         this.clouds = this.physics.add.group();
         this.cows = this.physics.add.group(); 
         this.bananas = this.physics.add.group(); 
+        this.walls = this.physics.add.group();
         this.effects = this.add.group(); 
 
         this.heartIcons = this.add.group();
@@ -534,9 +538,11 @@ class GameScene extends Phaser.Scene {
             }, callbackScope: this, loop: true });
         }
 
-        // REQ 4: +30% spawn interval for peace signs to let audio finish (2200 → 2860ms)
+        // REQ 4: +30% spawn interval for peace signs to let audio finish
         this.time.addEvent({ delay: 2860, callback: this.spawnObstacles, callbackScope: this, loop: true });
         this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
+        // Walls spawn every 3500ms
+        this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
         
         this.time.addEvent({ delay: 60000, callback: () => {
             if (!this.ufoActive && !this.isTrippyMode && !this.isAbducted) {
@@ -558,6 +564,10 @@ class GameScene extends Phaser.Scene {
         
         this.physics.add.overlap(this.player, this.cows, this.hitCow, null, this);
         this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this);
+        // Pools are now collectables: award points on touch
+        this.physics.add.overlap(this.player, this.pools, this.collectPool, null, this);
+        // Walls are lethal obstacles
+        this.wallCollider = this.physics.add.collider(this.player, this.walls, this.hitWall, null, this);
 
         } catch (error) {
             console.error('❌ CRITICAL ERROR en GameScene.create():', error);
@@ -651,7 +661,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCow() {
-        if (this.ufoState !== 'IDLE') return;
+        // Cows always spawn, even during UFO warning phase
         try { this.sound.play('moo_sound'); } catch(e) {}
         
         const fromLeft = Phaser.Math.Between(0, 1) === 0;
@@ -850,17 +860,14 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacles() {
-        if (this.ufoState !== 'IDLE') return;
-        if (this.pendingUfo) return;
+        // Only pools respect the UFO state gate (WARNING/ACTIVE clears airspace naturally)
+        const poolsAllowed = (this.ufoState === 'IDLE') && !this.pendingUfo;
 
         const currentSpeed = gameState.baseSpeed + (gameState.meters * 0.05);
 
-        if (Phaser.Math.Between(1, 10) <= 7) {
+        if (poolsAllowed && Phaser.Math.Between(1, 10) <= 7) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, 900, 'pool');
-            pool.evaluated = false; 
-            pool.isSafe = false;
-            pool.cleared = false; 
             pool.setDepth(1); 
 
             let scaleDrops = Math.floor(gameState.meters / 1000);
@@ -874,6 +881,7 @@ class GameScene extends Phaser.Scene {
             }
         }
 
+        // Peace signs always spawn (no UFO restriction)
         if (Phaser.Math.Between(1, 10) <= 4) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
             const peace = this.peaceItems.create(peaceX, 1000, 'peace');
@@ -885,7 +893,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnCloud() {
-        if (this.ufoState !== 'IDLE') return;
+        // Clouds always spawn (no UFO restriction)
         const edgeX = Phaser.Math.Between(-50, portraitWidth + 50);
         const cloud = this.clouds.create(edgeX, 900, 'fluffy_cloud');
         
@@ -1049,87 +1057,23 @@ class GameScene extends Phaser.Scene {
             }
         });
 
-        const charlyBottom = this.player.y + (this.player.displayHeight / 2);
-        const charlyTop = this.player.y - (this.player.displayHeight / 2);
-
+        // Pools: update lateral movement only (collision handled by overlap → collectPool)
         [...this.pools.getChildren()].forEach(pool => {
-            // Fix 1: Skip objects destroyed this frame (UFO+Pool simultaneous crash fix)
             if (!pool.active) return;
-
-            if (pool.isMoving && !pool.evaluated) {
+            if (pool.isMoving) {
                 pool.x += pool.moveDir * pool.moveSpeed;
                 const halfWidth = (pool.displayWidth / 2);
-                if (pool.x - halfWidth < 0) {
-                    pool.moveDir = 1;
-                } else if (pool.x + halfWidth > portraitWidth) {
-                    pool.moveDir = -1;
-                }
-            }
-
-            const poolTop = pool.y - (pool.displayHeight / 2);
-            const poolBottom = pool.y + (pool.displayHeight / 2);
-
-            if (!pool.evaluated && charlyBottom >= poolTop && charlyTop <= poolBottom) {
-                pool.evaluated = true;
-                
-                const charlyLeft = this.player.x - (this.player.body.width / 2);
-                const charlyRight = this.player.x + (this.player.body.width / 2);
-                const safeWaterWidth = pool.displayWidth * 0.80;
-                const waterLeft = pool.x - (safeWaterWidth / 2); 
-                const waterRight = pool.x + (safeWaterWidth / 2);
-
-                if (this.isAbducted || this.hasParachute || (charlyLeft >= waterLeft && charlyRight <= waterRight)) {
-                    pool.isSafe = true; 
-                    this.handleSuccess(pool);
-
-                    if (!this.isAbducted) {
-                        this.tweens.add({
-                            targets: this.player,
-                            displayWidth: 0,
-                            displayHeight: 0,
-                            alpha: 0,
-                            duration: 350,
-                            ease: 'Cubic.out'
-                        });
-                    }
-                } else {
-                    pool.isSafe = false; 
-                    this.triggerFail(this.player, pool, "CRASH");
-                }
-            }
-
-            if (pool.evaluated && pool.isSafe && !pool.cleared && poolBottom < charlyTop) {
-                pool.cleared = true;
-                
-                if (!this.isAbducted) {
-                    this.tweens.add({ 
-                        targets: this.player, 
-                        displayWidth: this.hasParachute ? 170 : 75,
-                        displayHeight: this.hasParachute ? 170 : 100,
-                        alpha: 1, 
-                        duration: 300,
-                        ease: 'Cubic.out',
-                        onComplete: () => {
-                            if (this.hasParachute) {
-                                this.player.setDisplaySize(170, 170);
-                            } else {
-                                this.player.setDisplaySize(75, 100);
-                            }
-
-                            if (this.pendingUfo && !this.hasParachute) {
-                                this.pendingUfo = false;
-                                this.spawnUFO();
-                            }
-                        }
-                    });
-                } else {
-                    if (this.pendingUfo && !this.hasParachute) {
-                        this.pendingUfo = false;
-                        this.spawnUFO();
-                    }
-                }
+                if (pool.x - halfWidth < 0) pool.moveDir = 1;
+                else if (pool.x + halfWidth > portraitWidth) pool.moveDir = -1;
             }
         });
+
+        // Walls velocity
+        if (this.walls) {
+            this.walls.getChildren().forEach(w => {
+                if (w.active) w.setVelocityY(-actualSpeed);
+            });
+        }
         
         // --- MASTER GARBAGE COLLECTOR (Memory Leak Fix) ---
         // Destroys all objects that go out of the camera bounds
@@ -1151,6 +1095,7 @@ class GameScene extends Phaser.Scene {
         garbageCollectGroup(this.bananas);
         garbageCollectGroup(this.clouds);
         garbageCollectGroup(this.cows);
+        if (this.walls) garbageCollectGroup(this.walls);
 
         // --- UFO LIFECYCLE WATCHER ---
         if (this.ufoState === 'ACTIVE') {
@@ -1179,6 +1124,80 @@ class GameScene extends Phaser.Scene {
         
         const popup = this.add.text(pool.x, pool.y - 40, '+' + pointsAwarded, { fontSize: '20px', fontFamily: '"Press Start 2P"', color: '#FFFF00', align: 'center', stroke: '#ff69b4', strokeThickness: 4 }).setOrigin(0.5).setDepth(30);
         this.tweens.add({ targets: popup, y: popup.y - 50, alpha: 0, duration: 800, onComplete: () => popup.destroy() });
+    }
+
+    // Pools are now collectables: +50pts on touch
+    collectPool(player, pool) {
+        if (!pool || !pool.active) return;
+        pool.destroy();
+        const pts = 50 * gameState.multiplier;
+        gameState.score += pts;
+        this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
+        try { this.sound.play('splash'); } catch(e) {}
+        const popup = this.add.text(player.x, player.y - 50, '+' + pts, { fontSize: '22px', fontFamily: '"Press Start 2P"', color: '#00BFFF', stroke: '#000', strokeThickness: 4 }).setOrigin(0.5).setDepth(30);
+        this.tweens.add({ targets: popup, y: popup.y - 60, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
+    }
+
+    // New obstacle: wall segments with a gap
+    spawnWalls() {
+        const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
+        const wallW = 60;
+        const gapW = 110; // wide enough for Charly (75px) to pass comfortably
+        const gapX = Phaser.Math.Between(wallW / 2, portraitWidth - gapW - wallW / 2);
+        const spawnY = 950;
+        const speed = gameState.baseSpeed + (gameState.meters * 0.05);
+
+        // Fill left side up to gap
+        let x = wallW / 2;
+        while (x < gapX) {
+            const seg = this.walls.create(x, spawnY, wallKey);
+            seg.setDisplaySize(wallW, 40).setDepth(15).setImmovable(true);
+            seg.body.allowGravity = false;
+            x += wallW;
+        }
+        // Fill right side after gap
+        x = gapX + gapW;
+        while (x < portraitWidth + wallW) {
+            const seg = this.walls.create(x, spawnY, wallKey);
+            seg.setDisplaySize(wallW, 40).setDepth(15).setImmovable(true);
+            seg.body.allowGravity = false;
+            x += wallW;
+        }
+    }
+
+    // Lethal wall collision: lose 1 life, show neon CRASH!!!, blink invulnerability
+    hitWall(player, wall) {
+        if (this.isInvulnerable) return;
+        this.isInvulnerable = true;
+        this.cameras.main.shake(200, 0.025);
+
+        gameState.lives--;
+        this.updateHeartsUI();
+
+        // Neon green CRASH!!! text
+        const crashText = this.add.text(player.x, player.y, 'CRASH!!!', {
+            fontSize: '32px', fontFamily: '"Press Start 2P", Courier',
+            fill: '#39FF14', stroke: '#000000', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(200);
+        this.tweens.add({
+            targets: crashText, y: crashText.y - 50, alpha: 0,
+            duration: 800, onComplete: () => crashText.destroy()
+        });
+
+        if (gameState.lives <= 0) {
+            this.triggerFail(player, wall, 'GAME OVER');
+            return;
+        }
+
+        // Blink invulnerability for 2 seconds
+        this.tweens.add({
+            targets: player, alpha: 0,
+            duration: 120, yoyo: true, repeat: 7,
+            onComplete: () => {
+                player.setAlpha(1);
+                this.isInvulnerable = false;
+            }
+        });
     }
 
     triggerFail(player, obstacle, customText = "CRASH") {

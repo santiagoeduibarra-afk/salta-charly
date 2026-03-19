@@ -927,8 +927,8 @@ class GameScene extends Phaser.Scene {
     update(time, delta) {
         if (this.isInvulnerable) return;
 
-        // Scripted Event: forzar UFO a los 1000 pts
-        if (gameState.score >= 1000 && !this.firstUfoSpawned) {
+        // Scripted Event: forzar UFO a los 1000 METROS (no score)
+        if (gameState.meters >= 1000 && !this.firstUfoSpawned) {
             this.firstUfoSpawned = true;
             this.spawnUFO();
         }

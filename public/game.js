@@ -763,6 +763,9 @@ class GameScene extends Phaser.Scene {
         
         if (this.player.setTintFill) { this.player.setTintFill(0xffffff); }
         
+        // REQ 1: Memorizar altura relativa a la cámara antes de desaparecer
+        this.savedRelativeY = this.player.y - this.cameras.main.scrollY;
+
         this.tweens.add({
             targets: this.player,
             y: this.ufo.y + 5, 
@@ -814,7 +817,7 @@ class GameScene extends Phaser.Scene {
                                     
                                     this.tweens.add({
                                         targets: this.player,
-                                        y: 200, 
+                                        y: this.cameras.main.scrollY + (this.savedRelativeY || 200), 
                                         displayWidth: 75,
                                         displayHeight: 100,
                                         angle: 0,
@@ -822,6 +825,10 @@ class GameScene extends Phaser.Scene {
                                         duration: 600,
                                         ease: 'Cubic.out',
                                         onComplete: () => {
+                                            // REQ 2: Asegurar restauración de escala y física
+                                            this.player.setScale(1);
+                                            this.player.refreshBody();
+                                            
                                             this.isAbducted = false;
                                             this.ufo.state = 'leaving';
 
@@ -1121,20 +1128,27 @@ class GameScene extends Phaser.Scene {
                 this.currentUfoIndex++;             // Avanzar al siguiente target
 
                 // BUG FIX: Asegurar restauración completa del jugador
-                if (this.player) {
-                    const safeY = this.cameras.main.scrollY + (this.cameras.main.height * 0.25);
-                    const safeX = this.cameras.main.centerX;
-                    
-                    this.player.enableBody(true, safeX, safeY, true, true);
-                    this.player.setAlpha(1);
-                    this.player.setVisible(true);
-                    this.player.setActive(true);
-                    this.player.setVelocity(0, 0); // Reset inercia
-                    this.player.isInvulnerable = false; // Limpiar I-Frames
+                                if (this.player) {
+                                    // REQ 1: Usar altura memorizada si existe, sino 25% de la pantalla
+                                    const relY = (this.savedRelativeY !== undefined) ? this.savedRelativeY : (this.cameras.main.height * 0.25);
+                                    const safeY = this.cameras.main.scrollY + relY;
+                                    const safeX = this.cameras.main.centerX;
+                                    
+                                    this.player.enableBody(true, safeX, safeY, true, true);
+                                    
+                                    // REQ 2: Forzar escala original para que no se quede pequeño (shrink bug)
+                                    this.player.setScale(1);
+                                    this.player.refreshBody();
 
-                    // REQ 1: startFollow(player, true, 0, 1) para evitar wobble horizontal
-                    this.cameras.main.startFollow(this.player, true, 0, 1);
-                }
+                                    this.player.setAlpha(1);
+                                    this.player.setVisible(true);
+                                    this.player.setActive(true);
+                                    this.player.setVelocity(0, 0); // Reset inercia
+                                    this.player.isInvulnerable = false; // Limpiar I-Frames
+
+                                    // REQ 1: startFollow(player, true, 0, 1) para evitar wobble horizontal
+                                    this.cameras.main.startFollow(this.player, true, 0, 1);
+                                }
 
                 // Dar 2.5s de gracia para que no aparezcan paredes de golpe
                 if (this.wallsTimer) {
@@ -1262,41 +1276,48 @@ class GameScene extends Phaser.Scene {
 
     // Lethal wall collision: lose 1 life, show neon CRASH!!!, blink invulnerability
     hitWall(player, wall) {
-        if (this.isInvulnerable) return;
-        this.isInvulnerable = true;
-        this.cameras.main.shake(200, 0.025);
+        try {
+            if (this.isInvulnerable) return;
+            this.isInvulnerable = true;
+            this.cameras.main.shake(200, 0.025);
 
-        // REQ: Disable collider temporarily so life isn't lost multiple times
-        if (this.wallCollider) this.wallCollider.active = false;
+            // REQ: Disable collider temporarily so life isn't lost multiple times
+            if (this.wallCollider) this.wallCollider.active = false;
 
-        gameState.lives--;
-        this.updateHeartsUI();
+            gameState.lives--;
+            this.updateHeartsUI();
 
-        // Neon green CRASH!!! text (Ajustado)
-        const crashText = this.add.text(player.x, player.y, 'CRASH!!!', {
-            fontSize: '20px', fontFamily: '"Press Start 2P", Courier',
-            fill: '#39FF14', stroke: '#000000', strokeThickness: 4
-        }).setOrigin(0.5).setDepth(200);
-        this.tweens.add({
-            targets: crashText, y: crashText.y - 30, alpha: 0,
-            duration: 800, onComplete: () => crashText.destroy()
-        });
+            // Neon green CRASH!!! text (Ajustado)
+            const crashText = this.add.text(player.x, player.y, 'CRASH!!!', {
+                fontSize: '20px', fontFamily: '"Press Start 2P", Courier',
+                fill: '#39FF14', stroke: '#000000', strokeThickness: 4
+            }).setOrigin(0.5).setDepth(200);
+            this.tweens.add({
+                targets: crashText, y: crashText.y - 30, alpha: 0,
+                duration: 800, onComplete: () => crashText.destroy()
+            });
 
-        if (gameState.lives <= 0) {
-            this.triggerFail(player, wall, 'GAME OVER');
-            return;
-        }
-
-        // Blink invulnerability (I-Frames) - Charly ghosting alpha 0.2
-        this.tweens.add({
-            targets: player, alpha: 0.2,
-            duration: 150, yoyo: true, repeat: 5,
-            onComplete: () => {
-                player.setAlpha(1);
-                this.isInvulnerable = false;
-                if (this.wallCollider) this.wallCollider.active = true;
+            if (gameState.lives <= 0) {
+                this.triggerFail(player, wall, 'GAME OVER');
+                return;
             }
-        });
+
+            // Blink invulnerability (I-Frames) - Charly ghosting alpha 0.2
+            this.tweens.add({
+                targets: player, alpha: 0.2,
+                duration: 150, yoyo: true, repeat: 5,
+                onComplete: () => {
+                    player.setAlpha(1);
+                    this.isInvulnerable = false;
+                    if (this.wallCollider) this.wallCollider.active = true;
+                }
+            });
+        } catch (e) {
+            console.error('Error fatal en colision con pared:', e);
+            // Salida de seguridad: restaurar invulnerabilidad si el bloque falló
+            this.isInvulnerable = false;
+            if (this.wallCollider) this.wallCollider.active = true;
+        }
     }
 
     triggerFail(player, obstacle, customText = "CRASH") {

@@ -1137,30 +1137,76 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: popup, y: popup.y - 60, alpha: 0, duration: 700, onComplete: () => popup.destroy() });
     }
 
-    // New obstacle: wall segments with a gap
+    // New obstacle: wall segments with progress difficulty
     spawnWalls() {
         const wallKey = Phaser.Math.Between(0, 1) === 0 ? 'wall1' : 'wall2';
-        const wallW = 60;
-        const gapW = 110; // wide enough for Charly (75px) to pass comfortably
-        const gapX = Phaser.Math.Between(wallW / 2, portraitWidth - gapW - wallW / 2);
         const spawnY = 950;
-        const speed = gameState.baseSpeed + (gameState.meters * 0.05);
-
-        // Fill left side up to gap
-        let x = wallW / 2;
-        while (x < gapX) {
-            const seg = this.walls.create(x, spawnY, wallKey);
-            seg.setDisplaySize(wallW, 40).setDepth(15).setImmovable(true);
-            seg.body.allowGravity = false;
-            x += wallW;
+        
+        // Fase 1: 0 - 1000m (Obstáculos simples sueltos)
+        if (gameState.meters < 1000) {
+            const count = Phaser.Math.Between(1, 2);
+            for (let i = 0; i < count; i++) {
+                const rx = Phaser.Math.Between(50, portraitWidth - 50);
+                const block = this.walls.create(rx, spawnY, wallKey);
+                block.setDepth(15).setImmovable(true);
+                block.body.allowGravity = false;
+            }
+        } 
+        // Fase 2: 1000m - 2500m (Líneas horizontales con un hueco garantizado)
+        else if (gameState.meters < 2500) {
+            const gapW = 220; // Hueco amplio para Charly y banana
+            const gapX = Phaser.Math.Between(50, portraitWidth - gapW - 50);
+            
+            // Usamos el ancho de la textura para llenar la fila
+            const wallTexture = this.textures.get(wallKey).getSourceImage();
+            const wallW = wallTexture.width || 60;
+            
+            let x = wallW / 2;
+            while (x < gapX) {
+                const seg = this.walls.create(x, spawnY, wallKey);
+                seg.setDepth(15).setImmovable(true);
+                seg.body.allowGravity = false;
+                x += wallW;
+            }
+            x = gapX + gapW;
+            while (x < portraitWidth + wallW) {
+                const seg = this.walls.create(x, spawnY, wallKey);
+                seg.setDepth(15).setImmovable(true);
+                seg.body.allowGravity = false;
+                x += wallW;
+            }
         }
-        // Fill right side after gap
-        x = gapX + gapW;
-        while (x < portraitWidth + wallW) {
-            const seg = this.walls.create(x, spawnY, wallKey);
-            seg.setDisplaySize(wallW, 40).setDepth(15).setImmovable(true);
-            seg.body.allowGravity = false;
-            x += wallW;
+        // Fase 3: 2500m+ (Líneas más seguidas o patrones complejos)
+        else {
+            const isLine = Phaser.Math.Between(1, 10) <= 7;
+            if (isLine) {
+                const gapW = 200; // Hueco un poco más ajustado pero justo
+                const gapX = Phaser.Math.Between(40, portraitWidth - gapW - 40);
+                const wallTexture = this.textures.get(wallKey).getSourceImage();
+                const wallW = wallTexture.width || 60;
+
+                let x = wallW / 2;
+                while (x < gapX) {
+                    const seg = this.walls.create(x, spawnY, wallKey);
+                    seg.setDepth(15).setImmovable(true);
+                    seg.body.allowGravity = false;
+                    x += wallW;
+                }
+                x = gapX + gapW;
+                while (x < portraitWidth + wallW) {
+                    const seg = this.walls.create(x, spawnY, wallKey);
+                    seg.setDepth(15).setImmovable(true);
+                    seg.body.allowGravity = false;
+                    x += wallW;
+                }
+            } else {
+                // Mix de bloques sueltos
+                for (let i = 0; i < 4; i++) {
+                    const block = this.walls.create(Phaser.Math.Between(40, portraitWidth-40), spawnY, wallKey);
+                    block.setDepth(15).setImmovable(true);
+                    block.body.allowGravity = false;
+                }
+            }
         }
     }
 
@@ -1176,13 +1222,13 @@ class GameScene extends Phaser.Scene {
         gameState.lives--;
         this.updateHeartsUI();
 
-        // Neon green CRASH!!! text
+        // Neon green CRASH!!! text (Ajustado)
         const crashText = this.add.text(player.x, player.y, 'CRASH!!!', {
-            fontSize: '32px', fontFamily: '"Press Start 2P", Courier',
+            fontSize: '20px', fontFamily: '"Press Start 2P", Courier',
             fill: '#39FF14', stroke: '#000000', strokeThickness: 4
         }).setOrigin(0.5).setDepth(200);
         this.tweens.add({
-            targets: crashText, y: crashText.y - 50, alpha: 0,
+            targets: crashText, y: crashText.y - 30, alpha: 0,
             duration: 800, onComplete: () => crashText.destroy()
         });
 
@@ -1191,10 +1237,10 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
-        // Blink invulnerability for ~2 seconds (8 cycles of 250ms yoyo)
+        // Blink invulnerability (I-Frames) - Charly ghosting alpha 0.2
         this.tweens.add({
-            targets: player, alpha: 0,
-            duration: 125, yoyo: true, repeat: 7,
+            targets: player, alpha: 0.2,
+            duration: 150, yoyo: true, repeat: 5,
             onComplete: () => {
                 player.setAlpha(1);
                 this.isInvulnerable = false;

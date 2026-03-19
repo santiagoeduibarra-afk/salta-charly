@@ -459,6 +459,7 @@ class GameScene extends Phaser.Scene {
         this.isAbducted = false; 
         this.ufoActive = false;
         this.pendingUfo = false; 
+        this.firstUfoSpawned = false;
         
         this.isPushed = false; 
         this.lastCowSpawnMeter = 0; 
@@ -703,10 +704,15 @@ class GameScene extends Phaser.Scene {
         [...this.peaceItems.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
         [...this.bananas.getChildren()].forEach(o => { if (o && o.active) { if (o.body) o.body.enable = false; o.destroy(); } });
 
-        this.ufo = this.physics.add.sprite(this.player.x, -100, 'ufo1'); 
+        // Nace 100px por encima de lo que la cámara está viendo actualmente
+        const spawnY = this.cameras.main.scrollY - 100; 
+        const spawnX = Phaser.Math.Between(50, portraitWidth - 50);
+        
+        this.ufo = this.physics.add.sprite(spawnX, spawnY, 'ufo1'); 
         if (!this.ufo) return;
 
         this.ufoActive = true;
+        this.ufoHoverY = this.cameras.main.scrollY + 150;
         this.ufo.setDepth(5); 
         this.ufo.setScale(0); 
         this.ufo.state = 'approaching'; 
@@ -921,6 +927,12 @@ class GameScene extends Phaser.Scene {
     update(time, delta) {
         if (this.isInvulnerable) return;
 
+        // Scripted Event: forzar UFO a los 1000 pts
+        if (gameState.score >= 1000 && !this.firstUfoSpawned) {
+            this.firstUfoSpawned = true;
+            this.spawnUFO();
+        }
+
         if (gameState.meters - this.lastBananaSpawnMeter >= 800) {
             this.lastBananaSpawnMeter = gameState.meters;
             if (!this.ufoActive && !this.pendingUfo && !this.isTrippyMode && !this.isAbducted && !this.hasParachute) {
@@ -1132,8 +1144,12 @@ class GameScene extends Phaser.Scene {
             this.ufoActive = false; // ¡Reanuda los obstáculos normales!
         }
         
-        if (this.ufo && this.ufo.active && this.ufo.y > this.cameras.main.scrollY + this.cameras.main.height + 100) {
-            this.ufo.destroy(); // Esto disparará el bloque de arriba en el próximo frame
+        if (this.ufoActive && this.ufo && this.ufo.active) {
+            // Si el UFO pasa por debajo del límite INFERIOR de la cámara
+            if (this.ufo.y > this.cameras.main.scrollY + this.cameras.main.height + 150) {
+                this.ufo.destroy();
+                this.ufoActive = false; // Vuelven las vacas y piletas
+            }
         }
     }
 

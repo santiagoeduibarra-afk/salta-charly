@@ -495,7 +495,7 @@ class GameScene extends Phaser.Scene {
         this.player = this.physics.add.sprite(portraitWidth/2, 200, 'charly');
         this.player.setDisplaySize(75, 100);
         this.player.setOrigin(0.5, 0.5); 
-        this.player.setDepth(20); 
+        this.player.setDepth(10); // REQ 2: Player siempre encima de piletas
         this.player.body.setSize(35, 80); 
         this.player.body.setOffset(20, 10); 
         this.player.lastX = this.player.x; 
@@ -915,11 +915,16 @@ class GameScene extends Phaser.Scene {
         if (Phaser.Math.Between(1, 100) <= 85) {
             const poolX = portraitWidth/2 + Phaser.Math.Between(-100, 100); 
             const pool = this.pools.create(poolX, spawnY_Pool, 'pool');
-            pool.setDepth(1); 
-
+            pool.setDepth(1); // REQ 2: Pool debajo del jugador
+            
             let scaleDrops = Math.floor(gameState.meters / 1000);
             let poolScale = Math.max(0.16, 0.33 - (scaleDrops * 0.05)); 
             pool.setScale(poolScale);
+            
+            // REQ 2: Hitbox reducida al 30% y centrada
+            pool.body.setSize(pool.width * 0.3, pool.height * 0.3);
+            pool.body.setOffset(pool.width * 0.35, pool.height * 0.35);
+            
             pool.refreshBody(); // Asegurar físicas
 
             pool.isMoving = Phaser.Math.Between(1, 10) <= 4;
@@ -1379,20 +1384,18 @@ class GameScene extends Phaser.Scene {
                 duration: 800, onComplete: () => crashText.destroy()
             });
 
-            // REQ 1: Efecto de parpadeo robusto con Tinte Rojo
+            // REQ 1: Efecto de parpadeo blindado (Alpha 0.2)
             this.tweens.add({
                 targets: player,
-                alpha: { from: 1, to: 0 },
+                alpha: 0.2, // Ghosting sutil pero visible
                 duration: 100,
                 yoyo: true,
-                repeat: 8, // 1.6 segundos
+                repeat: 8, // Parpadea por 1.6 segundos
                 onStart: () => {
                     player.setVisible(true);
-                    player.setTint(0xff0000); // Tinte rojo de daño
                 },
                 onComplete: () => {
                     player.setAlpha(1);
-                    player.clearTint();
                     player.isInvulnerable = false;
                     // Reactivar collider si se desactivó
                     if (this.wallCollider) this.wallCollider.active = true;

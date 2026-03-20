@@ -485,29 +485,52 @@ class LevelEditorScene extends Phaser.Scene {
         this.cows = this.add.group();
         this.ufos = this.add.group();
 
-        this.selectedType = 'wall';
-        this.currentKey = 'wall1';
+        this.selectedType = 'pool';
+        this.currentKey = 'pool';
 
         // 2. GHOST BRUSH (Seguidor de ratón)
-        this.ghostBrush = this.add.sprite(0, 0, this.currentKey).setAlpha(0.5).setDepth(1001);
+        this.ghostBrush = this.add.sprite(0, 0, 'pool').setAlpha(0.5).setDepth(1001).setScale(0.4);
 
-        // 3. UI - METER & BUTTONS
+        // 3. UI - METER & BUTTONS (EXTERNO AL CANVAS)
         this.meterText = this.add.text(portraitWidth/2, 100, '0m', { fontSize: '28px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setScrollFactor(0).setOrigin(0.5).setDepth(2002);
         
-        const uiHtml = `
-            <button id="export-btn" class="editor-btn-fixed">EXPORTAR NIVEL</button>
-            <button id="test-btn" class="editor-btn-fixed">PROBAR AQUÍ</button>
-            <div class="editor-hint">
-                W: Pared | P: Pileta | S: Peace | C: Vaca | U: UFO<br>
-                FLECHAS: Arriba/Abajo para navegar | CLICK: Colocar
-            </div>
+        // Contenedor HTML Blindado
+        const uiContainer = document.createElement('div');
+        uiContainer.id = 'editor-ui-overlay';
+        uiContainer.style.position = 'absolute';
+        uiContainer.style.top = '20px';
+        uiContainer.style.right = '20px';
+        uiContainer.style.zIndex = '9999';
+        uiContainer.style.display = 'flex';
+        uiContainer.style.flexDirection = 'column';
+        uiContainer.style.alignItems = 'flex-end';
+        uiContainer.style.gap = '10px';
+        uiContainer.style.pointerEvents = 'none'; // Permitir clicks debajo si no hay botones
+        document.body.appendChild(uiContainer);
+
+        const exportBtn = document.createElement('button');
+        exportBtn.innerText = 'EXPORTAR NIVEL';
+        exportBtn.className = 'editor-btn-fixed';
+        exportBtn.style.pointerEvents = 'auto';
+        exportBtn.onclick = () => this.exportLevel();
+        
+        const testBtn = document.createElement('button');
+        testBtn.innerText = 'PROBAR AQUÍ';
+        testBtn.className = 'editor-btn-fixed';
+        testBtn.style.background = '#4CAF50';
+        testBtn.style.pointerEvents = 'auto';
+        testBtn.onclick = () => this.playTest();
+
+        uiContainer.appendChild(exportBtn);
+        uiContainer.appendChild(testBtn);
+
+        const hintDiv = document.createElement('div');
+        hintDiv.className = 'editor-hint';
+        hintDiv.innerHTML = `
+            W: Pared | P: Pileta | S: Peace | C: Vaca | U: UFO<br>
+            FLECHAS: Arriba/Abajo para navegar | CLICK: Colocar
         `;
-        this.editorUI = this.add.dom(0, 0).createFromHTML(uiHtml).setOrigin(0,0).setScrollFactor(0).setDepth(2003);
-        this.editorUI.addListener('click');
-        this.editorUI.on('click', (event) => {
-            if (event.target.id === 'export-btn') this.exportLevel();
-            if (event.target.id === 'test-btn') this.playTest();
-        });
+        document.body.appendChild(hintDiv);
 
         // 4. CONTROLES
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -520,19 +543,22 @@ class LevelEditorScene extends Phaser.Scene {
         });
 
         this.input.on('pointerdown', (pointer) => {
+            if (pointer.x > portraitWidth - 150 && pointer.y < 150) return; // Evitar click bajo botones
             this.placeObject(pointer.worldX, pointer.worldY);
         });
 
-        this.events.on('shutdown', () => { if (this.editorUI) this.editorUI.destroy(); });
+        this.events.on('shutdown', () => { 
+            if (uiContainer) uiContainer.remove(); 
+            if (hintDiv) hintDiv.remove();
+        });
     }
 
     placeObject(x, y) {
         let sprite;
-        let config = {};
-
         switch(this.selectedType) {
             case 'wall':
                 sprite = this.add.sprite(x, y, this.currentKey);
+                sprite.setDisplaySize(60, 40); // REQ 1: Tamaño exacto del juego
                 sprite.setData('type', 'wall');
                 sprite.setData('config', { wallType: this.currentKey });
                 this.walls.add(sprite);
@@ -543,7 +569,7 @@ class LevelEditorScene extends Phaser.Scene {
                 this.pools.add(sprite);
                 break;
             case 'peace':
-                sprite = this.add.sprite(x, y, 'peace');
+                sprite = this.add.sprite(x, y, 'peace').setScale(0.6);
                 sprite.setData('type', 'peace');
                 this.peaceItems.add(sprite);
                 break;
@@ -554,7 +580,7 @@ class LevelEditorScene extends Phaser.Scene {
                 this.cows.add(sprite);
                 break;
             case 'ufo':
-                sprite = this.add.sprite(x, y, 'ufo1').setScale(1);
+                sprite = this.add.sprite(x, y, 'ufo1').setScale(0.4);
                 sprite.setData('type', 'ufo');
                 this.ufos.add(sprite);
                 break;
@@ -625,7 +651,7 @@ class LevelEditorScene extends Phaser.Scene {
         if (Phaser.Input.Keyboard.JustDown(this.keys.W)) {
             this.selectedType = 'wall';
             this.currentKey = 'wall1';
-            this.ghostBrush.setTexture('wall1').setScale(1);
+            this.ghostBrush.setTexture('wall1').setDisplaySize(60, 40);
         }
         if (Phaser.Input.Keyboard.JustDown(this.keys.P)) {
             this.selectedType = 'pool';
@@ -633,7 +659,7 @@ class LevelEditorScene extends Phaser.Scene {
         }
         if (Phaser.Input.Keyboard.JustDown(this.keys.S)) {
             this.selectedType = 'peace';
-            this.ghostBrush.setTexture('peace').setScale(1);
+            this.ghostBrush.setTexture('peace').setScale(0.6);
         }
         if (Phaser.Input.Keyboard.JustDown(this.keys.C)) {
             this.selectedType = 'cow';
@@ -641,7 +667,7 @@ class LevelEditorScene extends Phaser.Scene {
         }
         if (Phaser.Input.Keyboard.JustDown(this.keys.U)) {
             this.selectedType = 'ufo';
-            this.ghostBrush.setTexture('ufo1').setScale(1);
+            this.ghostBrush.setTexture('ufo1').setScale(0.4);
         }
     }
 }

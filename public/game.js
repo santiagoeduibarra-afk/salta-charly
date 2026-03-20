@@ -997,9 +997,9 @@ class GameScene extends Phaser.Scene {
             this.tweens.add({ targets: pointsText, y: pointsText.y - 50, alpha: 0, duration: 600, onComplete: () => pointsText.destroy() });
         });
 
-        // PROCEDURAL VS TEST (REQ 1)
+        // PROCEDURAL VS TEST (REQ 1 - FIXED NAMES)
         if (this.isTestMode) {
-            this.loadEditorTestLevel(); // AISLAMIENTO TOTAL
+            this.loadLevelFromJSON(); 
         } else {
             this.startProceduralSpawners(); 
         }
@@ -1994,7 +1994,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    loadEditorTestLevel() {
+    loadLevelFromJSON() {
         const saved = localStorage.getItem('editor_test_level');
         if (!saved) return;
         try {
@@ -2032,6 +2032,7 @@ class GameScene extends Phaser.Scene {
                     if (obj.scaleX) sprite.setScale(obj.scaleX, obj.scaleY || obj.scaleX);
                     sprite.setData('type', obj.type);
                     if (obj.config) sprite.setData('config', obj.config);
+                    if (sprite.body && sprite.refreshBody) sprite.refreshBody();
                 }
             });
         } catch(e) { console.error("Test load error:", e); }

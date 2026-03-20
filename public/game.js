@@ -586,38 +586,52 @@ class LevelEditorScene extends Phaser.Scene {
             }
         });
 
-        // HOTKEYS
+        // ESCALA CON TECLADO (REQ 3)
         this.input.keyboard.on('keydown-LEFT', () => {
-            if (this.selectionFrameworkVisible && this.selectedObject) {
+            if (this.selectedObject) {
                 this.selectedObject.setScale(Math.max(0.1, this.selectedObject.scaleX - 0.05));
                 this.updateSelectionFramework();
                 this.syncScaleUI();
             }
         });
         this.input.keyboard.on('keydown-RIGHT', () => {
-            if (this.selectionFrameworkVisible && this.selectedObject) {
+            if (this.selectedObject) {
                 this.selectedObject.setScale(Math.min(2.5, this.selectedObject.scaleX + 0.05));
                 this.updateSelectionFramework();
                 this.syncScaleUI();
             }
         });
 
-        // 1. CLONACIÓN RÁPIDA (SPACE) (REQ 1)
+        // 2. CLONACIÓN RÁPIDA (SPACE) (REQ 2)
         this.input.keyboard.on('keydown-SPACE', () => {
-            const type = this.selectedType || (this.selectedObject ? this.selectedObject.getData('type') : null);
-            if (type) {
+            if (this.selectedObject) {
                 const x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
                 const y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
                 
-                // Si no hay tipo seleccionado explícitamente, usamos el del objeto anterior
-                if (!this.selectedType) this.selectedType = type;
+                const lastKey = this.selectedObject.texture.key;
+                const lastType = this.selectedObject.getData('type');
+                const lastScaleX = this.selectedObject.scaleX;
+                const lastScaleY = this.selectedObject.scaleY;
+
+                // Cambiamos temporalmente el estado para que placeObject haga su magia
+                const oldKey = this.currentKey;
+                const oldType = this.selectedType;
+                this.currentKey = lastKey;
+                this.selectedType = lastType;
                 
-                const s = this.placeObject(x, y);
-                // Clonamos la escala del seleccionado si lo hay
-                if (this.selectedObject) {
-                    s.setScale(this.selectedObject.scaleX, this.selectedObject.scaleY || this.selectedObject.scaleX);
+                const clone = this.placeObject(x, y);
+                clone.setScale(lastScaleX, lastScaleY);
+                
+                // Si es pared, asegurar grupo correcto (REQ 2 extra guard)
+                if (lastKey.includes('wall')) {
+                    this.walls.add(clone);
                 }
+
+                // Restaurar estado del pincel
+                this.currentKey = oldKey;
+                this.selectedType = oldType;
                 
+                // Deseleccionar pincel (comportamiento QoL)
                 this.selectedType = null;
                 this.ghostBrush.setVisible(false);
                 document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
@@ -983,52 +997,51 @@ class GameScene extends Phaser.Scene {
             this.tweens.add({ targets: pointsText, y: pointsText.y - 50, alpha: 0, duration: 600, onComplete: () => pointsText.destroy() });
         });
 
-        // PROCEDURAL VS TEST (REQ 3)
+        // PROCEDURAL VS TEST (REQ 1)
         if (this.isTestMode) {
-            this.loadEditorTestLevel();
+            this.loadEditorTestLevel(); // AISLAMIENTO TOTAL
         } else {
-            this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
-            this.time.addEvent({ delay: 1500, callback: this.spawnPools, callbackScope: this, loop: true }); 
-            this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
-            this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
+            this.startProceduralSpawners(); 
         }
         
         this.time.addEvent({ delay: 60000, callback: () => {
-            if (!this.ufoActive && !this.isTrippyMode && !this.isAbducted) {
+            if (!this.isTestMode && !this.ufoActive && !this.isTrippyMode && !this.isAbducted) {
                 this.pendingUfo = true;
             }
         }, callbackScope: this, loop: true });
 
         this.input.on('pointermove', (pointer) => {
             const isUfoBlocking = this.ufoActive && this.ufo && (this.ufo.state === 'approaching' || this.ufo.state === 'abducting');
-            // Fix 2: Swipe/delta movement instead of absolute teleport
             if (pointer.isDown && !this.isInvulnerable && !this.isAbducted && !isUfoBlocking && !this.isPushed) { 
                 const dx = pointer.x - pointer.prevPosition.x;
                 this.player.x = Phaser.Math.Clamp(this.player.x + dx, 37.5, portraitWidth - 37.5);
             }
         });
 
-        // Guard against null keyboard (mobile devices have no physical keyboard)
         this.cursors = this.input.keyboard ? this.input.keyboard.createCursorKeys() : null;
-        
         this.physics.add.overlap(this.player, this.cows, this.hitCow, null, this);
         this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this);
         this.physics.add.overlap(this.player, this.pools, this.onPoolOverlap, null, this);
-        // REGLA 1: Collider exacto después de definir player y walls
         this.wallCollider = this.physics.add.collider(this.player, this.walls, this.onWallHit, null, this);
 
-        // REQ 4: Deterministic Data Spawning
         this.isLevelLoaded = false;
         const testData = localStorage.getItem('level_test');
         if (testData) {
             this.loadJSONLevel(JSON.parse(testData));
             this.isLevelLoaded = true;
-            localStorage.removeItem('level_test'); // One-time test
+            localStorage.removeItem('level_test');
         }
 
         } catch (error) {
-            console.error('❌ CRITICAL ERROR en GameScene.create():', error);
+            console.error('❌ Error GameScene.create:', error);
         }
+    }
+
+    startProceduralSpawners() {
+        this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
+        this.time.addEvent({ delay: 1500, callback: this.spawnPools, callbackScope: this, loop: true }); 
+        this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
+        this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
     }
 
     loadJSONLevel(objects) {

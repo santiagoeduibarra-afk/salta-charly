@@ -163,13 +163,15 @@ class MenuScene extends Phaser.Scene {
 
         // "SALAS" button — white bg, pink text to distinguish from JUGAR
         createPinkButton(this, portraitWidth/2, 530, 180, 50, 'SALAS', () => {
-            // Unlock audio context on first real user interaction
-            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') {
-                this.sound.context.resume();
-            }
+            if (this.sound && this.sound.context && this.sound.context.state === 'suspended') { this.sound.context.resume(); }
             if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
             if (!bgMusic.isPlaying) { try { bgMusic.play(); } catch(e) {} }
             this.scene.start('RoomMenuScene');
+        }, 0xFFFFFF, '#ff69b4');
+
+        // REQ 1: EDITOR button
+        createPinkButton(this, portraitWidth/2, 610, 180, 50, 'EDITOR', () => {
+            this.scene.start('LevelEditorScene');
         }, 0xFFFFFF, '#ff69b4');
     }
 }
@@ -446,6 +448,153 @@ class LobbyScene extends Phaser.Scene {
     }
 }
 
+class LevelEditorScene extends Phaser.Scene {
+    constructor() { super('LevelEditorScene'); }
+
+    create() {
+        this.cameras.main.setBackgroundColor('#444');
+        this.selectedTool = 'wall1';
+        this.placedObjects = this.add.group();
+        this.worldY = 0; // Relative scroll position
+
+        // 1. GRID & RULER
+        this.bgGrid = this.add.graphics();
+        this.refreshGrid();
+
+        // 2. TOOLBAR (Fixed)
+        const toolbar = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
+        const barBg = this.add.rectangle(0, 0, portraitWidth, 100, 0x111, 0.9).setOrigin(0);
+        toolbar.add(barBg);
+
+        const tools = [
+            { key: 'wall1', label: 'WALL' },
+            { key: 'pool', label: 'POOL' },
+            { key: 'peace', label: 'PEACE' },
+            { key: 'vaca1', label: 'COW' },
+            { key: 'ufo1', label: 'UFO' }
+        ];
+
+        tools.forEach((t, i) => {
+            const tx = 50 + i * 85;
+            const btn = this.add.sprite(tx, 40, t.key).setDisplaySize(40, 40).setInteractive({ useHandCursor: true });
+            const lbl = this.add.text(tx, 75, t.label, { fontSize: '9px', fontFamily: '"Press Start 2P"' }).setOrigin(0.5);
+            btn.on('pointerdown', () => {
+                this.selectedTool = t.key;
+                this.toolsHighlight.x = tx;
+            });
+            toolbar.add([btn, lbl]);
+            if (i === 0) {
+                this.toolsHighlight = this.add.rectangle(tx, 40, 50, 50, 0xff69b4, 0.3).setScrollFactor(0);
+                toolbar.add(this.toolsHighlight);
+            }
+        });
+
+        // ACTION BUTTONS
+        const exportBtn = createPinkButton(this, 100, 750, 150, 40, 'EXPORT JSON', () => this.exportLevel(), 0x333, '#FF0').setScrollFactor(0);
+        const playBtn = createPinkButton(this, 300, 750, 150, 40, 'PLAY TEST', () => this.playTest(), 0x333, '#0F0').setScrollFactor(0);
+        const backBtn = createPinkButton(this, portraitWidth - 50, 130, 80, 30, 'BACK', () => this.scene.start('MenuScene'), 0x662222, '#FFF').setScrollFactor(0);
+        
+        // 3. PLACEMENT & CAMERA
+        this.input.on('pointerdown', (pointer) => {
+            if (pointer.y < 100 || pointer.y > 650) return; // Ignore toolbar/bottom areas
+            const worldX = pointer.x;
+            const worldY = pointer.y + this.cameras.main.scrollY;
+            this.spawnEditorObject(worldX, worldY, this.selectedTool);
+        });
+
+        this.cursors = this.input.keyboard.createCursorKeys();
+        
+        this.add.text(portraitWidth/2, 120, 'EDITOR: ARROWS TO MOVE | CLICK TO PLACE | DRAG TO MOVE', { fontSize: '8px', color: '#FFF' }).setOrigin(0.5).setScrollFactor(0);
+    }
+
+    refreshGrid() {
+        this.bgGrid.clear();
+        this.bgGrid.lineStyle(2, 0x666, 0.5);
+        // Draw some markers every 1000 pixels
+        for (let i = 0; i < 20; i++) {
+            const gy = i * 1000;
+            this.bgGrid.lineBetween(0, gy, portraitWidth, gy);
+            this.add.text(10, gy + 10, `${i}000m`, { fontSize: '14px', color: '#BBB' }).setDepth(-1);
+        }
+    }
+
+    spawnEditorObject(x, y, key, config = {}) {
+        const obj = this.add.sprite(x, y, key).setInteractive({ draggable: true });
+        obj.setData('texture', key);
+        
+        // Default configs
+        const meta = {
+            scale: config.scale || (key === 'pool' ? 0.3 : 1),
+            isStatic: config.isStatic !== undefined ? config.isStatic : true,
+            speed: config.speed || 0,
+            dir: config.dir || 1
+        };
+        obj.setData('config', meta);
+        obj.setScale(meta.scale);
+
+        obj.on('drag', (pointer, dragX, dragY) => {
+            obj.x = dragX;
+            obj.y = dragY;
+        });
+
+        // Edit properties on click
+        obj.on('pointerup', (pointer) => {
+            if (pointer.getDistance() > 5) return; // It was a drag
+            this.editObjectProperties(obj);
+        });
+
+        this.placedObjects.add(obj);
+        return obj;
+    }
+
+    editObjectProperties(obj) {
+        const cfg = obj.getData('config');
+        const newScale = parseFloat(prompt('Scale (0.1 - 3.0):', cfg.scale) || cfg.scale);
+        const moving = confirm('Enable movement? (OK = YES, CANCEL = STATIC)');
+        const speed = moving ? parseFloat(prompt('Lateral Speed (1-10):', cfg.speed || 2) || 2) : 0;
+        
+        cfg.scale = newScale;
+        cfg.isStatic = !moving;
+        cfg.speed = speed;
+        
+        obj.setScale(newScale);
+        obj.setData('config', cfg);
+    }
+
+    exportLevel() {
+        const data = this.placedObjects.getChildren().map(o => ({
+            x: o.x,
+            y: o.y,
+            texture: o.getData('texture'),
+            config: o.getData('config')
+        }));
+        
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'salta_charly_level.json';
+        a.click();
+    }
+
+    playTest() {
+        const data = this.placedObjects.getChildren().map(o => ({
+            x: o.x,
+            y: o.y,
+            texture: o.getData('texture'),
+            config: o.getData('config')
+        }));
+        localStorage.setItem('level_test', JSON.stringify(data));
+        this.scene.start('GameScene');
+    }
+
+    update() {
+        if (this.cursors.up.isDown) this.cameras.main.scrollY -= 15;
+        if (this.cursors.down.isDown) this.cameras.main.scrollY += 15;
+    }
+}
+
+
 class GameScene extends Phaser.Scene {
     constructor() { super('GameScene'); }
     
@@ -577,9 +726,64 @@ class GameScene extends Phaser.Scene {
         // REGLA 1: Collider exacto después de definir player y walls
         this.wallCollider = this.physics.add.collider(this.player, this.walls, this.onWallHit, null, this);
 
+        // REQ 4: Deterministic Data Spawning
+        this.isLevelLoaded = false;
+        const testData = localStorage.getItem('level_test');
+        if (testData) {
+            this.loadJSONLevel(JSON.parse(testData));
+            this.isLevelLoaded = true;
+            localStorage.removeItem('level_test'); // One-time test
+        }
+
         } catch (error) {
             console.error('❌ CRITICAL ERROR en GameScene.create():', error);
         }
+    }
+
+    loadJSONLevel(objects) {
+        console.log("Loading Deterministic Level:", objects.length, "objects");
+        objects.forEach(obj => {
+            const cfg = obj.config || {};
+            let sprite;
+            
+            if (obj.texture === 'wall1' || obj.texture === 'wall2') {
+                sprite = this.walls.create(obj.x, obj.y, obj.texture);
+                sprite.body.setImmovable(true);
+                sprite.body.setAllowGravity(false);
+                sprite.setDepth(10);
+            } else if (obj.texture === 'pool') {
+                sprite = this.pools.create(obj.x, obj.y, 'pool');
+                sprite.setDepth(5);
+            } else if (obj.texture === 'peace') {
+                sprite = this.peaceItems.create(obj.x, obj.y, 'peace');
+                sprite.active = true;
+                sprite.setDepth(6);
+            } else if (obj.texture === 'vaca1') {
+                sprite = this.cows.create(obj.x, obj.y, 'vaca1');
+                sprite.play('cow_fly');
+            } else if (obj.texture === 'ufo1') {
+                // UFOs in fixed levels behave like regular obstacles or triggers
+                sprite = this.add.sprite(obj.x, obj.y, 'ufo1');
+            }
+
+            if (sprite) {
+                sprite.setScale(cfg.scale || 1);
+                if (sprite.body) {
+                    sprite.body.setAllowGravity(false);
+                    if (sprite.texture.key === 'pool') {
+                        sprite.body.setSize(sprite.width * 0.8, sprite.height * 0.8);
+                        sprite.body.setOffset(sprite.width * 0.1, sprite.height * 0.1);
+                    }
+                }
+                sprite.refreshBody ? sprite.refreshBody() : null;
+                // Movement
+                if (!cfg.isStatic && cfg.speed > 0) {
+                    sprite.moveSpeed = cfg.speed;
+                    sprite.moveDir = cfg.dir || 1;
+                    sprite.isMoving = true;
+                }
+            }
+        });
     }
 
     updateOtherPlayersUI() {
@@ -1119,9 +1323,33 @@ class GameScene extends Phaser.Scene {
 
         this.player.lastX = this.player.x;
 
-        this.pools.getChildren().forEach(pool => pool.setVelocityY(-actualSpeed));
-        this.peaceItems.getChildren().forEach(peace => peace.setVelocityY(-actualSpeed));
-        this.bananas.getChildren().forEach(banana => banana.setVelocityY(-actualSpeed));
+        // REQ 4: Disable timers if level is loaded
+        if (this.isLevelLoaded) {
+            if (this.wallsTimer) this.wallsTimer.paused = true;
+        }
+
+        // REQ 2: Movimiento estrictamente por velocidad (Arcade Physics)
+        if (this.walls) {
+            this.walls.getChildren().forEach(w => {
+                const wallSpeed = this.isLevelLoaded ? 0 : -actualSpeed; // Adjust if needed
+                if (w.active) w.body.setVelocityY(wallSpeed);
+            });
+        }
+        
+        // Items velocity
+        if (!this.isLevelLoaded) {
+            this.pools.getChildren().forEach(pool => pool.setVelocityY(-actualSpeed));
+            this.peaceItems.getChildren().forEach(peace => peace.setVelocityY(-actualSpeed));
+            this.bananas.getChildren().forEach(banana => banana.setVelocityY(-actualSpeed));
+        } else {
+            // In static levels, things still go "up" relative to player
+            this.pools.getChildren().forEach(pool => pool.body.setVelocityY(0)); // Static mode
+            this.peaceItems.getChildren().forEach(peace => peace.body.setVelocityY(0));
+            this.walls.getChildren().forEach(w => w.body.setVelocityY(0));
+            // Camera movement handles the "falling"
+            this.cameras.main.scrollY += actualSpeed * (delta/1000);
+        }
+        
         this.clouds.getChildren().forEach(cloud => cloud.setVelocityY(-(actualSpeed * cloud.speedMult)));
 
         [...this.peaceItems.getChildren()].forEach(peace => {
@@ -1684,6 +1912,6 @@ const config = {
         default: 'arcade', 
         arcade: { gravity: { y: 0 }, debug: false } 
     },
-    scene: [BootScene, MenuScene, RoomMenuScene, LobbyScene, GameScene, GameOverScene]
+    scene: [BootScene, MenuScene, RoomMenuScene, LobbyScene, LevelEditorScene, GameScene, GameOverScene]
 };
 const game = new Phaser.Game(config);

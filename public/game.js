@@ -496,11 +496,13 @@ class LevelEditorScene extends Phaser.Scene {
         // GRUPOS Y SELECCIÓN
         this.walls = this.add.group();
         this.pools = this.add.group();
-        this.peaceItems = this.add.group();
         this.cows = this.add.group();
         this.ufos = this.add.group();
         this.ohms = this.add.group();
         this.bananas = this.add.group();
+        this.peace = this.add.group(); 
+
+        this.lastPlacedConfig = null;
 
         this.selectionGraphics = this.add.graphics();
         this.selectionHandles = this.add.group();
@@ -606,40 +608,44 @@ class LevelEditorScene extends Phaser.Scene {
         this.input.keyboard.on('keydown-DELETE', () => this.deleteSelected());
         this.input.keyboard.on('keydown-BACKSPACE', () => this.deleteSelected());
 
-        // 2. CLONACIÓN RÁPIDA (SPACE) (REQ 2)
         this.input.keyboard.on('keydown-SPACE', () => {
-            if (this.selectedObject) {
-                const x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
-                const y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
-                
-                const lastKey = this.selectedObject.texture.key;
-                const lastType = this.selectedObject.getData('type');
-                const lastScaleX = this.selectedObject.scaleX;
-                const lastScaleY = this.selectedObject.scaleY;
+            if (!this.lastPlacedConfig) return;
 
-                // Cambiamos temporalmente el estado para que placeObject haga su magia
-                const oldKey = this.currentKey;
-                const oldType = this.selectedType;
-                this.currentKey = lastKey;
-                this.selectedType = lastType;
-                
-                const clone = this.placeObject(x, y);
-                clone.setScale(lastScaleX, lastScaleY);
-                
-                // Si es pared, asegurar grupo correcto (REQ 2 extra guard)
-                if (lastKey.includes('wall')) {
+            let ptr = this.input.activePointer;
+            let clone = this.add.sprite(ptr.worldX, ptr.worldY, this.lastPlacedConfig.key);
+            clone.setScale(this.lastPlacedConfig.scaleX, this.lastPlacedConfig.scaleY);
+            clone.setInteractive({ draggable: true });
+
+            // Asignación estricta de físicas y grupos según el tipo
+            switch(this.lastPlacedConfig.type) {
+                case 'wall':
                     this.walls.add(clone);
-                }
-
-                // Restaurar estado del pincel
-                this.currentKey = oldKey;
-                this.selectedType = oldType;
-                
-                // Deseleccionar pincel (comportamiento QoL)
-                this.selectedType = null;
-                this.ghostBrush.setVisible(false);
-                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                    this.physics.add.existing(clone);
+                    clone.body.setImmovable(true);
+                    clone.body.setAllowGravity(false);
+                    clone.x = Phaser.Math.Snap.To(clone.x, 40); // Forzar Snap
+                    clone.y = Phaser.Math.Snap.To(clone.y, 40);
+                    break;
+                case 'pool': this.pools.add(clone); this.physics.add.existing(clone); break;
+                case 'peace': this.peace.add(clone); this.physics.add.existing(clone); break;
+                case 'ohm': this.ohms.add(clone); this.physics.add.existing(clone); clone.play('ohm_pulse'); break;
+                case 'cow': this.cows.add(clone); this.physics.add.existing(clone); break;
+                case 'banana': this.bananas.add(clone); this.physics.add.existing(clone); break;
+                case 'ufo': this.ufos.add(clone); this.physics.add.existing(clone); break;
             }
+            
+            // Re-setup events for cloned object
+            clone.on('pointerdown', (p) => { p.event.stopPropagation(); this.openPropertiesPanel(clone); });
+            clone.on('drag', (ptr, dx, dy) => {
+                clone.x = Phaser.Math.Snap.To(dx, 40);
+                clone.y = Phaser.Math.Snap.To(dy, 40);
+                this.updateSelectionFramework();
+            });
+            clone.on('dragend', () => {
+                clone.x = Phaser.Math.Snap.To(clone.x, 40);
+                clone.y = Phaser.Math.Snap.To(clone.y, 40);
+                this.updateSelectionFramework();
+            });
         });
 
         // TRACKPAD / WHEEL SCROLL (QoL 3)
@@ -705,11 +711,14 @@ class LevelEditorScene extends Phaser.Scene {
         // AUTO SELECT
         this.openPropertiesPanel(sprite);
 
+        // REQ 2A: Memoria Desvinculada
+        this.lastPlacedConfig = { key: this.currentKey, type: this.selectedType, scaleX: sprite.scaleX, scaleY: sprite.scaleY };
+
         // GROUPS
         switch(this.selectedType) {
             case 'wall': this.walls.add(sprite); break;
             case 'pool': this.pools.add(sprite); break;
-            case 'peace': this.peaceItems.add(sprite); break;
+            case 'peace': this.peace.add(sprite); break;
             case 'ohm': this.ohms.add(sprite); break;
             case 'cow': this.cows.add(sprite); break;
             case 'ufo': this.ufos.add(sprite); break;
@@ -822,36 +831,48 @@ class LevelEditorScene extends Phaser.Scene {
         }
     }
 
+    exportLevelData() {
+        let cleanData = [];
+        
+        // Función auxiliar para extraer solo la data segura
+        const extractData = (obj, type) => {
+            if (!obj) return;
+            cleanData.push({ 
+                type: type, 
+                x: Math.round(obj.x), 
+                y: Math.round(obj.y), 
+                texture: obj.texture.key,
+                scaleX: obj.scaleX, 
+                scaleY: obj.scaleY,
+                config: obj.getData('config') || {}
+            });
+        };
+
+        // Mapea TODOS los grupos activos. ¡No omitas ninguno! (REQ 1)
+        if (this.walls) this.walls.getChildren().forEach(w => extractData(w, 'wall'));
+        if (this.pools) this.pools.getChildren().forEach(p => extractData(p, 'pool'));
+        if (this.peace) this.peace.getChildren().forEach(p => extractData(p, 'peace'));
+        if (this.cows) this.cows.getChildren().forEach(c => extractData(c, 'cow'));
+        if (this.bananas) this.bananas.getChildren().forEach(b => extractData(b, 'banana'));
+        if (this.ohms) this.ohms.getChildren().forEach(o => extractData(o, 'ohm')); 
+        if (this.ufos) this.ufos.getChildren().forEach(u => extractData(u, 'ufo'));
+
+        // Guarda el JSON limpio
+        localStorage.setItem('editor_test_level', JSON.stringify(cleanData));
+        console.log("Nivel guardado. Elementos totales:", cleanData.length);
+        return cleanData;
+    }
+
     exportLevel() {
-        let all = [];
-        const proc = (g) => { if(!g) return; g.getChildren().forEach(o => {
-            all.push({ type: o.getData('type'), x: Math.round(o.x), y: Math.round(o.y), config: o.getData('config') || {}, scaleX: o.scaleX, scaleY: o.scaleY });
-        });};
-        [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
-        const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+        this.exportLevelData();
+        const saved = localStorage.getItem('editor_test_level');
+        if (!saved) return;
+        const blob = new Blob([saved], { type: 'application/json' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'level.json'; a.click();
     }
 
     playTest() {
-        let all = [];
-        const proc = (g) => { 
-            if(!g) return; 
-            g.getChildren().forEach(o => {
-                all.push({ 
-                    type: o.getData('type'), 
-                    x: Math.round(o.x), 
-                    y: Math.round(o.y), 
-                    texture: o.texture.key,
-                    config: o.getData('config') || {}, 
-                    scaleX: o.scaleX, 
-                    scaleY: o.scaleY 
-                });
-            });
-        };
-        // Unificación total (REQ 2)
-        [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
-        
-        localStorage.setItem('editor_test_level', JSON.stringify(all));
+        this.exportLevelData();
         this.scene.start('GameScene', { testMode: true, startY: this.cameras.main.scrollY });
     }
 
@@ -952,7 +973,7 @@ class GameScene extends Phaser.Scene {
         this.player.lastParachuteTexture = 'banana3'; 
 
         this.pools = this.physics.add.group();
-        this.peaceItems = this.physics.add.group();
+        this.peace = this.physics.add.group();
         this.clouds = this.physics.add.group();
         this.cows = this.physics.add.group(); 
         this.bananas = this.physics.add.group(); 
@@ -1073,7 +1094,7 @@ class GameScene extends Phaser.Scene {
                 sprite = this.pools.create(obj.x, obj.y, 'pool');
                 sprite.setDepth(5);
             } else if (obj.texture === 'peace') {
-                sprite = this.peaceItems.create(obj.x, obj.y, 'peace');
+                sprite = this.peace.create(obj.x, obj.y, 'peace');
                 sprite.active = true;
                 sprite.setDepth(6);
             } else if (obj.texture === 'vaca1') {
@@ -1464,7 +1485,7 @@ class GameScene extends Phaser.Scene {
         // REQ 3: Aumentar frecuencia ~20% (era 4/10, ahora 5/10 aprox)
         if (Phaser.Math.Between(1, 10) <= 5) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
-            const peace = this.peaceItems.create(peaceX, 1000, 'peace');
+            const peace = this.peace.create(peaceX, 1000, 'peace');
             const scaleFactor = 45 / peace.width;
             peace.setScale(scaleFactor);
             peace.setDepth(6);
@@ -1659,12 +1680,11 @@ class GameScene extends Phaser.Scene {
         // Items velocity
         if (!this.isLevelLoaded) {
             this.pools.getChildren().forEach(pool => pool.setVelocityY(-actualSpeed));
-            this.peaceItems.getChildren().forEach(peace => peace.setVelocityY(-actualSpeed));
+            this.peace.getChildren().forEach(p => p.setVelocityY(-actualSpeed));
             this.bananas.getChildren().forEach(banana => banana.setVelocityY(-actualSpeed));
         } else {
-            // In static levels, things still go "up" relative to player
-            this.pools.getChildren().forEach(pool => pool.body.setVelocityY(0)); // Static mode
-            this.peaceItems.getChildren().forEach(peace => peace.body.setVelocityY(0));
+            this.pools.getChildren().forEach(pool => pool.body.setVelocityY(0));
+            this.peace.getChildren().forEach(p => p.body.setVelocityY(0));
             this.walls.getChildren().forEach(w => w.body.setVelocityY(0));
             // Camera movement handles the "falling"
             this.cameras.main.scrollY += actualSpeed * (delta/1000);
@@ -1672,11 +1692,11 @@ class GameScene extends Phaser.Scene {
         
         this.clouds.getChildren().forEach(cloud => cloud.setVelocityY(-(actualSpeed * cloud.speedMult)));
 
-        [...this.peaceItems.getChildren()].forEach(peace => {
-            if (!peace.active) return;
-            const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, peace.x, peace.y);
+        [...this.peace.getChildren()].forEach(p => {
+            if (!p.active) return;
+            const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, p.x, p.y);
             if (dist < 65) {
-                this.collectPeace(this.player, peace);
+                this.collectPeace(this.player, p);
             }
         });
 
@@ -1714,7 +1734,7 @@ class GameScene extends Phaser.Scene {
         };
 
         garbageCollectGroup(this.pools);
-        garbageCollectGroup(this.peaceItems);
+        garbageCollectGroup(this.peace);
         garbageCollectGroup(this.bananas);
         garbageCollectGroup(this.clouds);
         garbageCollectGroup(this.cows);
@@ -2026,7 +2046,7 @@ class GameScene extends Phaser.Scene {
                         sprite = this.pools.create(obj.x, obj.y, 'pool');
                         break;
                     case 'peace':
-                        sprite = this.peaceItems.create(obj.x, obj.y, 'peace');
+                        sprite = this.peace.create(obj.x, obj.y, 'peace');
                         break;
                     case 'ohm':
                         sprite = this.ohms.create(obj.x, obj.y, 'ohm1'); 

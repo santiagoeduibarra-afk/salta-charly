@@ -411,7 +411,7 @@ class LobbyScene extends Phaser.Scene {
                         this.add.text(cx, 225 + (i * 28), `${i+1}. ${e.name} ${e.score}pts`, { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333' }).setOrigin(0.5);
                     });
                 }
-            }).catch(() => { scoresLoading.setText('Sin datos'); });
+            }).catch(() => { scoresLoading.setText('Error de servidor'); });
 
         // Socket logic 
         socket.emit('join_room', { room: gameState.currentRoom });
@@ -464,6 +464,14 @@ class LevelEditorScene extends Phaser.Scene {
         this.load.image('banana1', 'assets/BANANA1.png');
         this.load.image('ohm1', 'assets/OHM1.png');
         this.load.image('ohm2', 'assets/OHM2.png');
+
+        // Handle Image for Resize
+        const canvas = document.createElement('canvas');
+        canvas.width = 10; canvas.height = 10;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,10,10);
+        ctx.strokeStyle = '#007bff'; ctx.strokeRect(0,0,10,10);
+        this.textures.addCanvas('handle', canvas);
     }
 
     create() {
@@ -480,46 +488,44 @@ class LevelEditorScene extends Phaser.Scene {
             this.bgClouds.add(cloud);
         }
 
-        // GRUPOS PARA EXPORTACIÓN
+        // GRUPOS Y SELECCIÓN
         this.walls = this.add.group();
         this.pools = this.add.group();
         this.peaceItems = this.add.group();
         this.cows = this.add.group();
         this.ufos = this.add.group();
         this.ohms = this.add.group();
+        this.bananas = this.add.group();
+
+        this.selectionGraphics = this.add.graphics();
+        this.selectionHandles = this.add.group();
+        this.selectedObject = null;
 
         this.selectedType = 'pool';
         this.currentKey = 'pool';
+        this.GRID_SIZE = 40;
 
-        // 2. GHOST BRUSH (Pincel)
+        // 2. GHOST BRUSH
         this.ghostBrush = this.add.sprite(0, 0, 'pool').setAlpha(0.5).setDepth(1001).setScale(0.4);
 
-        // 3. UI - EXTERNAL HTML ELEMENTS
+        // 3. UI - EXTERNAL HTML
         this.meterText = this.add.text(portraitWidth/2, 100, '0m', { fontSize: '28px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setScrollFactor(0).setOrigin(0.5).setDepth(2002);
         
-        // UI SUPERIOR (EXPORT/TEST)
         const uiMain = document.createElement('div');
         uiMain.id = 'editor-main-ui';
         document.body.appendChild(uiMain);
-
         ['EXPORTAR', 'PROBAR'].forEach(txt => {
             const btn = document.createElement('button');
             btn.innerText = txt;
             btn.className = 'editor-btn-fixed';
-            if (txt === 'PROBAR') {
-                btn.style.background = '#4CAF50';
-                btn.onclick = () => this.playTest();
-            } else {
-                btn.onclick = () => this.exportLevel();
-            }
+            if (txt === 'PROBAR') { btn.style.background = '#4CAF50'; btn.onclick = () => this.playTest(); }
+            else { btn.onclick = () => this.exportLevel(); }
             uiMain.appendChild(btn);
         });
 
-        // PANEL SELECTOR DE HERRAMIENTAS
         const toolSelector = document.createElement('div');
         toolSelector.id = 'editor-tool-selector';
         document.body.appendChild(toolSelector);
-
         const tools = ['wall', 'pool', 'peace', 'ohm', 'cow', 'ufo', 'banana'];
         tools.forEach(t => {
             const btn = document.createElement('button');
@@ -534,31 +540,20 @@ class LevelEditorScene extends Phaser.Scene {
             toolSelector.appendChild(btn);
         });
 
-        // PANEL DE PROPIEDADES (DINÁMICO)
         const attrPanel = document.createElement('div');
         attrPanel.id = 'editor-attr-panel';
         document.body.appendChild(attrPanel);
 
-        const hintDiv = document.createElement('div');
-        hintDiv.className = 'editor-hint';
-        hintDiv.innerHTML = `
-            HERRAMIENTAS IZQUIERDA | ARROBAS: Mover Camara<br>
-            CLICK: Crear | CLICK OBJETO: Editar | DRAG: Mover
-        `;
-        document.body.appendChild(hintDiv);
-
-        // 4. CONTROLES
-        this.GRID_SIZE = 40;
+        // 4. INPUTS
         this.cursors = this.input.keyboard.createCursorKeys();
-        
         this.input.on('pointerdown', (pointer) => {
-            // Evitar click si el puntero está sobre la UI HTML
             if (pointer.x < 160 || pointer.x > portraitWidth - 150) return;
             this.placeObject(pointer.worldX, pointer.worldY);
         });
 
         this.events.on('shutdown', () => { 
-            [uiMain, toolSelector, attrPanel, hintDiv].forEach(el => { if(el) el.remove(); });
+            [uiMain, toolSelector, attrPanel].forEach(el => { if(el) el.remove(); }); 
+            const hint = document.querySelector('.editor-hint'); if(hint) hint.remove();
         });
 
         this.updateToolState();
@@ -571,64 +566,53 @@ class LevelEditorScene extends Phaser.Scene {
                           this.selectedType === 'ufo' ? 'ufo1' : 
                           this.selectedType === 'banana' ? 'banana1' :
                           this.selectedType === 'pool' ? 'pool' : 'peace';
-        
         this.ghostBrush.setTexture(this.currentKey);
-        
-        // Escalar el fantasma
+        const scale = this.selectedType === 'pool' || this.selectedType === 'ufo' ? 0.4 : 
+                      this.selectedType === 'peace' || this.selectedType === 'ohm' || this.selectedType === 'banana' ? 0.6 : 0.8;
+        this.ghostBrush.setScale(scale);
         if (this.selectedType === 'wall') this.ghostBrush.setDisplaySize(60, 40);
-        else if (this.selectedType === 'pool' || this.selectedType === 'ufo') this.ghostBrush.setScale(0.4);
-        else if (this.selectedType === 'peace' || this.selectedType === 'ohm' || this.selectedType === 'banana') this.ghostBrush.setScale(0.6);
-        else if (this.selectedType === 'cow') this.ghostBrush.setScale(0.8);
     }
 
     placeObject(x, y) {
-        if (this.selectedType === 'wall') {
-            x = Phaser.Math.Snap.To(x, this.GRID_SIZE);
-            y = Phaser.Math.Snap.To(y, this.GRID_SIZE);
-        }
+        // SNAPPING INICIAL
+        x = Phaser.Math.Snap.To(x, this.GRID_SIZE);
+        y = Phaser.Math.Snap.To(y, this.GRID_SIZE);
 
         const sprite = this.add.sprite(x, y, this.currentKey);
         sprite.setInteractive({ draggable: true });
         sprite.setData('type', this.selectedType);
         sprite.setData('config', { velocityY: 0 });
 
-        // Aplicar escala inicial exacta
         if (this.selectedType === 'wall') sprite.setDisplaySize(60, 40);
         else if (this.selectedType === 'pool' || this.selectedType === 'ufo') sprite.setScale(0.4);
         else if (this.selectedType === 'peace' || this.selectedType === 'ohm' || this.selectedType === 'banana') sprite.setScale(0.6);
-        else if (this.selectedType === 'cow') sprite.setScale(0.8);
+        else sprite.setScale(0.8);
 
-        // EVENTOS AISLADOS (Fix: Overlap)
-        sprite.on('pointerdown', (ptr) => {
-            ptr.event.stopPropagation(); // BLOQUEA el click de fondo
-            this.openPropertiesPanel(sprite);
-        });
-
+        sprite.on('pointerdown', (ptr) => { ptr.event.stopPropagation(); this.openPropertiesPanel(sprite); });
         sprite.on('drag', (ptr, dragX, dragY) => {
-            if (sprite.getData('type') === 'wall') {
-                sprite.x = Phaser.Math.Snap.To(dragX, this.GRID_SIZE);
-                sprite.y = Phaser.Math.Snap.To(dragY, this.GRID_SIZE);
-            } else {
-                sprite.x = dragX;
-                sprite.y = dragY;
-            }
+            sprite.x = Phaser.Math.Snap.To(dragX, this.GRID_SIZE);
+            sprite.y = Phaser.Math.Snap.To(dragY, this.GRID_SIZE);
+            this.updateSelectionFramework();
+        });
+        sprite.on('dragend', () => {
+            sprite.x = Phaser.Math.Snap.To(sprite.x, this.GRID_SIZE);
+            sprite.y = Phaser.Math.Snap.To(sprite.y, this.GRID_SIZE);
+            this.updateSelectionFramework();
         });
 
-        // Autoselección inmediata
+        // AUTO SELECT
         this.openPropertiesPanel(sprite);
 
-        // Sorting
-        if (this.selectedType === 'wall') this.walls.add(sprite);
-        else if (this.selectedType === 'pool') this.pools.add(sprite);
-        else if (this.selectedType === 'peace') this.peaceItems.add(sprite);
-        else if (this.selectedType === 'ohm') this.ohms.add(sprite);
-        else if (this.selectedType === 'cow') this.cows.add(sprite);
-        else if (this.selectedType === 'ufo') this.ufos.add(sprite);
-        else if (this.selectedType === 'banana') {
-            if (!this.bananas) this.bananas = this.add.group();
-            this.bananas.add(sprite);
+        // GROUPS
+        switch(this.selectedType) {
+            case 'wall': this.walls.add(sprite); break;
+            case 'pool': this.pools.add(sprite); break;
+            case 'peace': this.peaceItems.add(sprite); break;
+            case 'ohm': this.ohms.add(sprite); break;
+            case 'cow': this.cows.add(sprite); break;
+            case 'ufo': this.ufos.add(sprite); break;
+            case 'banana': this.bananas.add(sprite); break;
         }
-
         return sprite;
     }
 
@@ -637,146 +621,126 @@ class LevelEditorScene extends Phaser.Scene {
         this.selectedObject = sprite;
         this.selectedObject.setTint(0x00ff00);
 
+        this.updateSelectionFramework();
+
         const panel = document.getElementById('editor-attr-panel');
         panel.style.display = 'flex';
-        
         const type = sprite.getData('type').toUpperCase();
         const cfg = sprite.getData('config');
 
         panel.innerHTML = `
-            <div style="color:#00ff00; margin-bottom:5px; font-size:7px;">EDITANDO: ${type}</div>
+            <div style="color:#ff69b4; margin-bottom:5px;">PROP: ${type}</div>
             <label>ESCALA: <span id="lbl-sx">${sprite.scaleX.toFixed(2)}</span></label>
-            <input type="range" min="0.1" max="2" step="0.05" value="${sprite.scaleX}" id="rng-sx">
-            
-            <label>VELOCIDAD Y: <span id="lbl-vy">${cfg.velocityY}</span></label>
-            <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="rng-vy">
-            
+            <input type="range" min="0.1" max="2.5" step="0.05" value="${sprite.scaleX}" id="rng-sx">
+            <label>VELOCIDAD: <span id="lbl-vy">${cfg.velocityY}</span></label>
+            <input type="range" min="-15" max="15" step="1" value="${cfg.velocityY}" id="rng-vy">
             <div style="display:flex; gap:5px; margin-top:5px;">
                 <button id="btn-close-attr" style="flex:1">OK</button>
-                <button id="btn-del-attr" style="background:#f00; flex:1">BORRAR</button>
+                <button id="btn-del-attr" style="background:#f00; flex:1">DEL</button>
             </div>
         `;
 
-        document.getElementById('rng-sx').oninput = (e) => {
-            const val = parseFloat(e.target.value);
-            sprite.setScale(val);
+        const sx = document.getElementById('rng-sx');
+        sx.oninput = (e) => { 
+            const val = parseFloat(e.target.value); 
+            sprite.setScale(val); 
             document.getElementById('lbl-sx').innerText = val.toFixed(2);
+            this.updateSelectionFramework();
         };
-        document.getElementById('rng-vy').oninput = (e) => {
-            const val = parseInt(e.target.value);
-            cfg.velocityY = val;
+        const vy = document.getElementById('rng-vy');
+        vy.oninput = (e) => { 
+            const val = parseInt(e.target.value); 
+            cfg.velocityY = val; 
             document.getElementById('lbl-vy').innerText = val;
         };
-        document.getElementById('btn-close-attr').onclick = () => {
-            panel.style.display = 'none';
-            sprite.clearTint();
+        document.getElementById('btn-close-attr').onclick = () => { 
+            panel.style.display = 'none'; 
+            sprite.clearTint(); 
             this.selectedObject = null;
+            this.clearSelectionFramework();
         };
-        document.getElementById('btn-del-attr').onclick = () => {
-            sprite.destroy();
-            panel.style.display = 'none';
-            this.selectedObject = null;
+        document.getElementById('btn-del-attr').onclick = () => { 
+            sprite.destroy(); 
+            panel.style.display = 'none'; 
+            this.selectedObject = null; 
+            this.clearSelectionFramework();
         };
+    }
+
+    updateSelectionFramework() {
+        if (!this.selectedObject) return;
+        const obj = this.selectedObject;
+        this.selectionGraphics.clear();
+        this.selectionGraphics.lineStyle(2, 0x007bff, 1);
+        this.selectionGraphics.strokeRectShape(obj.getBounds());
+
+        this.selectionHandles.clear(true, true);
+        const bounds = obj.getBounds();
+        const positions = [
+            {x: bounds.left, y: bounds.top, originX: 1, originY: 1},
+            {x: bounds.centerX, y: bounds.top, originX: 0.5, originY: 1},
+            {x: bounds.right, y: bounds.top, originX: 0, originY: 1},
+            {x: bounds.left, y: bounds.centerY, originX: 1, originY: 0.5},
+            {x: bounds.right, y: bounds.centerY, originX: 0, originY: 0.5},
+            {x: bounds.left, y: bounds.bottom, originX: 1, originY: 0},
+            {x: bounds.centerX, y: bounds.bottom, originX: 0.5, originY: 0},
+            {x: bounds.right, y: bounds.bottom, originX: 0, originY: 0}
+        ];
+
+        positions.forEach(p => {
+            const h = this.add.sprite(p.x, p.y, 'handle').setInteractive({ draggable: true }).setDepth(2000);
+            h.on('drag', (ptr, dx, dy) => {
+                const diffX = Math.abs(dx - obj.x);
+                const diffY = Math.abs(dy - obj.y);
+                const newScaleX = (diffX * 2) / obj.width * obj.scaleX;
+                const newScaleY = (diffY * 2) / obj.height * obj.scaleY;
+                
+                if (p.x !== bounds.centerX) obj.scaleX = newScaleX;
+                if (p.y !== bounds.centerY) obj.scaleY = newScaleY;
+                
+                this.updateSelectionFramework();
+                const sx = document.getElementById('lbl-sx'); if(sx) sx.innerText = obj.scaleX.toFixed(2);
+                const rng = document.getElementById('rng-sx'); if(rng) rng.value = obj.scaleX;
+            });
+            this.selectionHandles.add(h);
+        });
+    }
+
+    clearSelectionFramework() {
+        this.selectionGraphics.clear();
+        this.selectionHandles.clear(true, true);
     }
 
     exportLevel() {
-        let allObjects = [];
-        const processGroup = (group) => {
-            if (!group) return;
-            group.getChildren().forEach(o => {
-                allObjects.push({
-                    type: o.getData('type'),
-                    x: Math.round(o.x),
-                    y: Math.round(o.y),
-                    config: o.getData('config') || {}
-                });
-            });
-        };
-        processGroup(this.walls);
-        processGroup(this.pools);
-        processGroup(this.peaceItems);
-        processGroup(this.ohms);
-        processGroup(this.cows);
-        processGroup(this.ufos);
-        processGroup(this.bananas);
-
-        const blob = new Blob([JSON.stringify(allObjects, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'level_data.json';
-        a.click();
+        let all = [];
+        const proc = (g) => { if(!g) return; g.getChildren().forEach(o => {
+            all.push({ type: o.getData('type'), x: Math.round(o.x), y: Math.round(o.y), config: o.getData('config') || {}, scaleX: o.scaleX, scaleY: o.scaleY });
+        });};
+        [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
+        const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'level.json'; a.click();
     }
 
     playTest() {
-        let allObjects = [];
-        const processGroup = (group) => {
-            if (!group) return;
-            group.getChildren().forEach(o => {
-                allObjects.push({
-                    type: o.getData('type'),
-                    x: Math.round(o.x),
-                    y: Math.round(o.y),
-                    texture: o.texture.key, // Para compatibilidad con loadJSONLevel
-                    config: o.getData('config') || {}
-                });
-            });
-        };
-        processGroup(this.walls);
-        processGroup(this.pools);
-        processGroup(this.peaceItems);
-        processGroup(this.ohms);
-        processGroup(this.cows);
-        processGroup(this.ufos);
-        processGroup(this.bananas);
-
-        localStorage.setItem('level_test', JSON.stringify(allObjects));
+        let all = [];
+        const proc = (g) => { if(!g) return; g.getChildren().forEach(o => {
+            all.push({ type: o.getData('type'), x: Math.round(o.x), y: Math.round(o.y), texture: o.texture.key, config: o.getData('config') || {}, scaleX: o.scaleX, scaleY: o.scaleY });
+        });};
+        [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
+        localStorage.setItem('level_test', JSON.stringify(all));
         this.scene.start('GameScene', { startY: this.cameras.main.scrollY });
     }
 
-
     update() {
-        // Navegación
         if (this.cursors.up.isDown) this.cameras.main.scrollY -= 12;
         if (this.cursors.down.isDown) this.cameras.main.scrollY += 12;
-
-        // Meter Counter
         this.meterText.setText(Math.floor(this.cameras.main.scrollY * 0.1) + 'm');
-
-        // Ghost Brush
-        if (this.selectedType === 'wall') {
-            this.ghostBrush.x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
-            this.ghostBrush.y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
-        } else {
-            this.ghostBrush.x = this.input.activePointer.worldX;
-            this.ghostBrush.y = this.input.activePointer.worldY;
-        }
-
-        // Teclas rápidas
-        if (Phaser.Input.Keyboard.JustDown(this.keys.W)) {
-            this.selectedType = 'wall';
-            this.currentKey = 'wall1';
-            this.ghostBrush.setTexture('wall1').setDisplaySize(60, 40);
-        }
-        if (Phaser.Input.Keyboard.JustDown(this.keys.P)) {
-            this.selectedType = 'pool';
-            this.ghostBrush.setTexture('pool').setScale(0.4);
-        }
-        if (Phaser.Input.Keyboard.JustDown(this.keys.S)) {
-            this.selectedType = 'peace';
-            this.ghostBrush.setTexture('peace').setScale(0.6);
-        }
-        if (Phaser.Input.Keyboard.JustDown(this.keys.C)) {
-            this.selectedType = 'cow';
-            this.ghostBrush.setTexture('vaca1').setScale(0.8);
-        }
-        if (Phaser.Input.Keyboard.JustDown(this.keys.U)) {
-            this.selectedType = 'ufo';
-            this.ghostBrush.setTexture('ufo1').setScale(0.4);
-        }
+        
+        // PINCEL SNAP
+        this.ghostBrush.x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
+        this.ghostBrush.y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
     }
 }
-
-
 
 
 
@@ -2071,7 +2035,7 @@ class GameOverScene extends Phaser.Scene {
                 }
             }
         } catch (e) {
-            const t = this.add.text(portraitWidth/2, 250, 'NO CONNECTION', { fontSize: '14px', fontFamily: '"Press Start 2P"', color: '#333', align: 'center' }).setOrigin(0.5);
+            const t = this.add.text(portraitWidth/2, 250, 'No se pudo conectar con\nel servidor de puntajes', { fontSize: '10px', fontFamily: '"Press Start 2P"', color: '#333', align: 'center' }).setOrigin(0.5);
             this.leaderboardTexts.push(t);
         }
     }

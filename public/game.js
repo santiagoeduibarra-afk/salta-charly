@@ -452,156 +452,199 @@ class LevelEditorScene extends Phaser.Scene {
     constructor() { super('LevelEditorScene'); }
 
     create() {
-        this.cameras.main.setBackgroundColor('#444');
-        this.selectedTool = 'wall1';
+        // 1. WYSIWYG ENVIRONMENT
+        this.sky = this.add.graphics();
+        this.sky.fillGradientStyle(0x87CEEB, 0x87CEEB, 0x4169E1, 0x4169E1, 1);
+        this.sky.fillRect(0, 0, portraitWidth, 100000); 
+
+        this.bgClouds = this.add.group();
+        for(let i=0; i<30; i++) {
+            const cy = i * 400 + Phaser.Math.Between(-100, 100);
+            const cloud = this.add.sprite(Phaser.Math.Between(0, portraitWidth), cy, 'cloud');
+            cloud.setScale(Phaser.Math.FloatBetween(0.8, 1.5)).setAlpha(0.6);
+            this.bgClouds.add(cloud);
+        }
+
         this.placedObjects = this.add.group();
-        this.worldY = 0; // Relative scroll position
+        this.selectedTool = 'wall1';
+        this.selectedObject = null;
+        this.previewActive = false;
 
-        // 1. GRID & RULER
-        this.bgGrid = this.add.graphics();
-        this.refreshGrid();
-
-        // 2. TOOLBAR (Fixed)
-        const toolbar = this.add.container(0, 0).setScrollFactor(0).setDepth(1000);
-        const barBg = this.add.rectangle(0, 0, portraitWidth, 100, 0x111, 0.9).setOrigin(0);
-        toolbar.add(barBg);
-
-        const tools = [
-            { key: 'wall1', label: 'WALL' },
-            { key: 'pool', label: 'POOL' },
-            { key: 'peace', label: 'PEACE' },
-            { key: 'vaca1', label: 'COW' },
-            { key: 'ufo1', label: 'UFO' }
-        ];
-
-        tools.forEach((t, i) => {
-            const tx = 50 + i * 85;
-            const btn = this.add.sprite(tx, 40, t.key).setDisplaySize(40, 40).setInteractive({ useHandCursor: true });
-            const lbl = this.add.text(tx, 75, t.label, { fontSize: '9px', fontFamily: '"Press Start 2P"' }).setOrigin(0.5);
-            btn.on('pointerdown', () => {
-                this.selectedTool = t.key;
-                this.toolsHighlight.x = tx;
-            });
-            toolbar.add([btn, lbl]);
-            if (i === 0) {
-                this.toolsHighlight = this.add.rectangle(tx, 40, 50, 50, 0xff69b4, 0.3).setScrollFactor(0);
-                toolbar.add(this.toolsHighlight);
+        // 2. DOM UI - TOOLBAR
+        const toolbarHtml = `
+            <div class="editor-toolbar">
+                <img src="assets/wall1.png" class="tool-icon selected" data-tool="wall1">
+                <img src="assets/POOL.png" class="tool-icon" data-tool="pool">
+                <img src="assets/PEACE.PNG" class="tool-icon" data-tool="peace">
+                <img src="assets/VACA1.png" class="tool-icon" data-tool="vaca1">
+                <img src="assets/ufo1.png" class="tool-icon" data-tool="ufo1">
+                <div style="flex-grow:1"></div>
+                <button class="editor-btn" id="export-json">EXPORT</button>
+                <button class="editor-btn" id="test-drop" style="background:#0F0">TEST HERE</button>
+            </div>
+        `;
+        const toolbar = this.add.dom(0, 0).createFromHTML(toolbarHtml).setScrollFactor(0).setOrigin(0,0);
+        
+        toolbar.addListener('click');
+        toolbar.on('click', (event) => {
+            if (event.target.dataset.tool) {
+                this.selectedTool = event.target.dataset.tool;
+                const icons = document.querySelectorAll('.tool-icon');
+                icons.forEach(i => i.classList.remove('selected'));
+                event.target.classList.add('selected');
             }
+            if (event.target.id === 'export-json') this.exportLevel();
+            if (event.target.id === 'test-drop') this.playTest();
         });
 
-        // ACTION BUTTONS
-        const exportBtn = createPinkButton(this, 100, 750, 150, 40, 'EXPORT JSON', () => this.exportLevel(), 0x333, '#FF0').setScrollFactor(0);
-        const playBtn = createPinkButton(this, 300, 750, 150, 40, 'PLAY TEST', () => this.playTest(), 0x333, '#0F0').setScrollFactor(0);
-        const backBtn = createPinkButton(this, portraitWidth - 50, 130, 80, 30, 'BACK', () => this.scene.start('MenuScene'), 0x662222, '#FFF').setScrollFactor(0);
+        // 3. UI - DISTANCE METER (WYSIWYG)
+        this.meterText = this.add.text(20, 120, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setScrollFactor(0).setDepth(2002);
         
-        // 3. PLACEMENT & CAMERA
+        // 4. MOUSE/KEY CONTROLS
+        this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            this.cameras.main.scrollY += deltaY * 2;
+        });
+
         this.input.on('pointerdown', (pointer) => {
-            if (pointer.y < 100 || pointer.y > 650) return; // Ignore toolbar/bottom areas
-            const worldX = pointer.x;
-            const worldY = pointer.y + this.cameras.main.scrollY;
-            this.spawnEditorObject(worldX, worldY, this.selectedTool);
+            if (pointer.y < 120) return;
+            const wx = pointer.worldX;
+            const wy = pointer.worldY;
+            
+            // Selection or Placement?
+            const clicked = this.placedObjects.getChildren().find(o => o.getBounds().contains(wx, wy));
+            if (clicked) {
+                this.selectObject(clicked);
+            } else {
+                this.spawnEditorObject(wx, wy, this.selectedTool);
+            }
         });
 
         this.cursors = this.input.keyboard.createCursorKeys();
         
-        this.add.text(portraitWidth/2, 120, 'EDITOR: ARROWS TO MOVE | CLICK TO PLACE | DRAG TO MOVE', { fontSize: '8px', color: '#FFF' }).setOrigin(0.5).setScrollFactor(0);
+        // Properties Panel (Hidden initially)
+        this.propPanel = document.createElement('div');
+        this.propPanel.className = 'properties-panel';
+        this.propPanel.style.display = 'none';
+        document.body.appendChild(this.propPanel);
+
+        this.events.on('shutdown', () => {
+            if (this.propPanel) this.propPanel.remove();
+        });
     }
 
-    refreshGrid() {
-        this.bgGrid.clear();
-        this.bgGrid.lineStyle(2, 0x666, 0.5);
-        // Draw some markers every 1000 pixels
-        for (let i = 0; i < 20; i++) {
-            const gy = i * 1000;
-            this.bgGrid.lineBetween(0, gy, portraitWidth, gy);
-            this.add.text(10, gy + 10, `${i}000m`, { fontSize: '14px', color: '#BBB' }).setDepth(-1);
-        }
+    selectObject(obj) {
+        if (this.selectedObject) this.selectedObject.clearTint();
+        this.selectedObject = obj;
+        this.selectedObject.setTint(0x00ff00);
+        this.showProperties(obj);
     }
 
-    spawnEditorObject(x, y, key, config = {}) {
+    showProperties(obj) {
+        const cfg = obj.getData('config');
+        this.propPanel.style.display = 'block';
+        this.propPanel.innerHTML = `
+            <div>OBJECT: ${obj.getData('texture').toUpperCase()}</div>
+            <label>SCALE X: <span id="val-sx">${obj.scaleX.toFixed(2)}</span></label>
+            <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleX}" id="in-sx">
+            <label>SCALE Y: <span id="val-sy">${obj.scaleY.toFixed(2)}</span></label>
+            <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleY}" id="in-sy">
+            <label>VELOCITY Y: <span id="val-vy">${cfg.velocityY}</span></label>
+            <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="in-vy">
+            <button class="editor-btn" id="btn-preview">${this.previewActive ? 'STOP PREVIEW' : 'PREVIEW MOTION'}</button>
+            <button class="editor-btn" style="background:#f00" id="btn-delete">DELETE</button>
+        `;
+
+        const inSx = document.getElementById('in-sx');
+        const inSy = document.getElementById('in-sy');
+        const inVy = document.getElementById('in-vy');
+
+        inSx.oninput = () => { obj.scaleX = parseFloat(inSx.value); cfg.scaleX = obj.scaleX; document.getElementById('val-sx').innerText = obj.scaleX; };
+        inSy.oninput = () => { obj.scaleY = parseFloat(inSy.value); cfg.scaleY = obj.scaleY; document.getElementById('val-sy').innerText = obj.scaleY; };
+        inVy.oninput = () => { cfg.velocityY = parseInt(inVy.value); document.getElementById('val-vy').innerText = cfg.velocityY; };
+        
+        document.getElementById('btn-preview').onclick = () => {
+            this.previewActive = !this.previewActive;
+            document.getElementById('btn-preview').innerText = this.previewActive ? 'STOP PREVIEW' : 'PREVIEW MOTION';
+        };
+        document.getElementById('btn-delete').onclick = () => {
+            obj.destroy();
+            this.propPanel.style.display = 'none';
+            this.selectedObject = null;
+        };
+    }
+
+    spawnEditorObject(x, y, key) {
         const obj = this.add.sprite(x, y, key).setInteractive({ draggable: true });
         obj.setData('texture', key);
+        obj.setData('baseY', y);
         
-        // Default configs
-        const meta = {
-            scale: config.scale || (key === 'pool' ? 0.3 : 1),
-            isStatic: config.isStatic !== undefined ? config.isStatic : true,
-            speed: config.speed || 0,
-            dir: config.dir || 1
-        };
-        obj.setData('config', meta);
-        obj.setScale(meta.scale);
+        let initialScale = 1;
+        if (key === 'pool') initialScale = 0.4;
+        if (key === 'vaca1') initialScale = 0.8;
+        
+        obj.setScale(initialScale);
+        obj.setData('config', { scaleX: initialScale, scaleY: initialScale, velocityY: 0 });
 
         obj.on('drag', (pointer, dragX, dragY) => {
             obj.x = dragX;
             obj.y = dragY;
-        });
-
-        // Edit properties on click
-        obj.on('pointerup', (pointer) => {
-            if (pointer.getDistance() > 5) return; // It was a drag
-            this.editObjectProperties(obj);
+            obj.setData('baseY', dragY);
         });
 
         this.placedObjects.add(obj);
-        return obj;
-    }
-
-    editObjectProperties(obj) {
-        const cfg = obj.getData('config');
-        const newScale = parseFloat(prompt('Scale (0.1 - 3.0):', cfg.scale) || cfg.scale);
-        const moving = confirm('Enable movement? (OK = YES, CANCEL = STATIC)');
-        const speed = moving ? parseFloat(prompt('Lateral Speed (1-10):', cfg.speed || 2) || 2) : 0;
-        
-        cfg.scale = newScale;
-        cfg.isStatic = !moving;
-        cfg.speed = speed;
-        
-        obj.setScale(newScale);
-        obj.setData('config', cfg);
+        this.selectObject(obj);
     }
 
     exportLevel() {
         const data = this.placedObjects.getChildren().map(o => ({
-            x: o.x,
-            y: o.y,
-            texture: o.getData('texture'),
-            config: o.getData('config')
+            x: o.x, y: o.y, texture: o.getData('texture'), config: o.getData('config')
         }));
-        
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
-        a.href = url;
+        a.href = URL.createObjectURL(blob);
         a.download = 'salta_charly_level.json';
         a.click();
     }
 
     playTest() {
         const data = this.placedObjects.getChildren().map(o => ({
-            x: o.x,
-            y: o.y,
-            texture: o.getData('texture'),
-            config: o.getData('config')
+            x: o.x, y: o.y, texture: o.getData('texture'), config: o.getData('config')
         }));
         localStorage.setItem('level_test', JSON.stringify(data));
-        this.scene.start('GameScene');
+        this.propPanel.style.display = 'none';
+        this.scene.start('GameScene', { startY: this.cameras.main.scrollY });
     }
 
     update() {
         if (this.cursors.up.isDown) this.cameras.main.scrollY -= 15;
         if (this.cursors.down.isDown) this.cameras.main.scrollY += 15;
+        
+        this.meterText.setText(Math.floor(this.cameras.main.scrollY * 0.1) + 'm');
+        
+        if (this.previewActive) {
+            this.placedObjects.getChildren().forEach(o => {
+                const vy = o.getData('config').velocityY;
+                if (vy !== 0) {
+                    o.y += vy;
+                    const baseY = o.getData('baseY');
+                    if (Math.abs(o.y - baseY) > 300) o.y = baseY;
+                }
+            });
+        }
     }
 }
+
 
 
 class GameScene extends Phaser.Scene {
     constructor() { super('GameScene'); }
     
-    create() {
+    create(data) {
         try {
+        const startY = (data && data.startY) ? data.startY : 0;
+        
         gameState.score = 0; 
-        gameState.meters = 0;
+        gameState.meters = startY * 0.1;
         gameState.lives = 3;
         gameState.baseSpeed = 450;
         gameState.multiplier = 1;
@@ -612,14 +655,13 @@ class GameScene extends Phaser.Scene {
         this.ufoActive = false;
         this.pendingUfo = false;
 
-        // UFO State Machine: REQ 1 Procedural targets for pacing
         this.ufoTargets = [
-            Phaser.Math.Between(800, 1200),   // Primera abducción
-            Phaser.Math.Between(2700, 4000),  // Segunda abducción (mínimo 1500m después)
-            Phaser.Math.Between(5500, 8000)   // Tercera abducción (mínimo 1500m después)
+            Phaser.Math.Between(800, 1200),
+            Phaser.Math.Between(2700, 4000),
+            Phaser.Math.Between(5500, 8000)
         ];
         this.currentUfoIndex = 0;
-        this.ufoState = 'IDLE'; // 'IDLE' | 'WARNING' | 'ACTIVE'
+        this.ufoState = 'IDLE'; 
         
         this.isPushed = false; 
         this.lastCowSpawnMeter = 0; 
@@ -630,25 +672,25 @@ class GameScene extends Phaser.Scene {
         this.parachuteTimer = null;
         this.lastPeaceAudio = 0;
         this.lastWallY = 0; 
-        this.isWallsGracePeriod = false; // REQ 2: Flag para gracia sin pausar timer
-        this.savedX = portraitWidth / 2; // Default
-        this.savedRelativeY = 200; // Default
+        this.isWallsGracePeriod = false; 
+        this.savedX = portraitWidth / 2; 
+        this.savedRelativeY = 200; 
 
         this.cameras.main.setBackgroundColor('#87CEEB');
+        this.cameras.main.scrollY = startY;
 
         try {
             if (!bgMusic) { bgMusic = this.sound.add('bgm', { loop: true, volume: 0.5 }); }
             if (!bgMusic.isPlaying) { bgMusic.play(); }
         } catch(e) {}
 
-        this.player = this.physics.add.sprite(portraitWidth/2, 200, 'charly');
+        this.player = this.physics.add.sprite(portraitWidth/2, startY + 200, 'charly');
         this.player.setDisplaySize(75, 100);
         this.player.setOrigin(0.5, 0.5); 
         this.player.setDepth(20); // REQ 2: Charly siempre arriba de los objetos piletas/walls
         this.player.body.setSize(35, 80); 
         this.player.body.setOffset(20, 10); 
         this.player.lastX = this.player.x; 
-
         this.player.lastParachuteTexture = 'banana3'; 
 
         this.pools = this.physics.add.group();

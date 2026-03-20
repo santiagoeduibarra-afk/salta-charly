@@ -535,6 +535,7 @@ class LevelEditorScene extends Phaser.Scene {
                 document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.selectedType = t;
+                this.ghostBrush.setVisible(true); // Re-show brush
                 this.updateToolState();
             };
             toolSelector.appendChild(btn);
@@ -548,7 +549,18 @@ class LevelEditorScene extends Phaser.Scene {
         this.cursors = this.input.keyboard.createCursorKeys();
         this.input.on('pointerdown', (pointer) => {
             if (pointer.x < 160 || pointer.x > portraitWidth - 150) return;
-            this.placeObject(pointer.worldX, pointer.worldY);
+            if (this.selectedType) {
+                this.placeObject(pointer.worldX, pointer.worldY);
+                // AUTO-DESELECT TOOL (QoL 1)
+                this.selectedType = null;
+                this.ghostBrush.setVisible(false);
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            }
+        });
+
+        // TRACKPAD / WHEEL SCROLL (QoL 3)
+        this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
+            this.cameras.main.scrollY += deltaY * 1.5;
         });
 
         this.events.on('shutdown', () => { 
@@ -689,14 +701,13 @@ class LevelEditorScene extends Phaser.Scene {
 
         positions.forEach(p => {
             const h = this.add.sprite(p.x, p.y, 'handle').setInteractive({ draggable: true }).setDepth(2000);
-            h.on('drag', (ptr, dx, dy) => {
-                const diffX = Math.abs(dx - obj.x);
-                const diffY = Math.abs(dy - obj.y);
-                const newScaleX = (diffX * 2) / obj.width * obj.scaleX;
-                const newScaleY = (diffY * 2) / obj.height * obj.scaleY;
-                
-                if (p.x !== bounds.centerX) obj.scaleX = newScaleX;
-                if (p.y !== bounds.centerY) obj.scaleY = newScaleY;
+            h.on('drag', (ptr) => {
+                // Cálculo suave basado en distancia al centro (QoL 2)
+                const newWidth = Math.abs(ptr.worldX - obj.x) * 2;
+                const newHeight = Math.abs(ptr.worldY - obj.y) * 2;
+
+                if (p.x !== bounds.centerX) obj.setDisplaySize(Math.max(10, newWidth), obj.displayHeight);
+                if (p.y !== bounds.centerY) obj.setDisplaySize(obj.displayWidth, Math.max(10, newHeight));
                 
                 this.updateSelectionFramework();
                 const sx = document.getElementById('lbl-sx'); if(sx) sx.innerText = obj.scaleX.toFixed(2);
@@ -793,11 +804,25 @@ class GameScene extends Phaser.Scene {
         } catch(e) {}
 
         this.player = this.physics.add.sprite(portraitWidth/2, startY + 200, 'charly');
+        this.player.setScale(1); // RESET ABSOLUTO (QoL 4A)
         this.player.setDisplaySize(75, 100);
         this.player.setOrigin(0.5, 0.5); 
         this.player.setDepth(20); // REQ 2: Charly siempre arriba de los objetos piletas/walls
         this.player.body.setSize(35, 80); 
         this.player.body.setOffset(20, 10); 
+
+        // HUD DE TEST (QoL 4B)
+        if (data && data.startY !== undefined) {
+            const exitBtn = document.createElement('button');
+            exitBtn.innerText = '🛑 TERMINAR TEST';
+            exitBtn.className = 'editor-test-exit';
+            exitBtn.onclick = () => {
+                exitBtn.remove();
+                this.scene.start('LevelEditorScene');
+            };
+            document.body.appendChild(exitBtn);
+            this.events.on('shutdown', () => { if(exitBtn) exitBtn.remove(); });
+        }
         this.player.lastX = this.player.x; 
         this.player.lastParachuteTexture = 'banana3'; 
 

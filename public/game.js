@@ -76,8 +76,12 @@ class BootScene extends Phaser.Scene {
         this.load.image('banana2', 'assets/BANANA2.png');
         this.load.image('banana3', 'assets/BANANA3.png');
 
-        this.load.image('wall1', 'assets/wall1.png');
         this.load.image('wall2', 'assets/wall2.png');
+        
+        // REQ 3: OHM ASSETS
+        this.load.image('ohm1', 'assets/ohm1.png');
+        this.load.image('ohm2', 'assets/ohm2.png');
+        this.load.audio('ohmSound', 'sounds/ohm.mp3');
     }
 
     create() {
@@ -462,8 +466,9 @@ class LevelEditorScene extends Phaser.Scene {
         this.load.image('ufo1', 'assets/ufo1.png');
         this.load.image('charly', 'assets/charly.png');
         this.load.image('banana1', 'assets/BANANA1.png');
-        this.load.image('ohm1', 'assets/OHM1.png');
-        this.load.image('ohm2', 'assets/OHM2.png');
+        this.load.image('ohm1', 'assets/ohm1.png');
+        this.load.image('ohm2', 'assets/ohm2.png');
+        this.load.audio('ohmSound', 'sounds/ohm.mp3');
 
         // Handle Image for Resize
         const canvas = document.createElement('canvas');
@@ -581,19 +586,41 @@ class LevelEditorScene extends Phaser.Scene {
             }
         });
 
-        // ESCALA CON TECLADO (REQ 1)
+        // HOTKEYS
         this.input.keyboard.on('keydown-LEFT', () => {
-            if (this.selectedObject) {
+            if (this.selectionFrameworkVisible && this.selectedObject) {
                 this.selectedObject.setScale(Math.max(0.1, this.selectedObject.scaleX - 0.05));
                 this.updateSelectionFramework();
                 this.syncScaleUI();
             }
         });
         this.input.keyboard.on('keydown-RIGHT', () => {
-            if (this.selectedObject) {
+            if (this.selectionFrameworkVisible && this.selectedObject) {
                 this.selectedObject.setScale(Math.min(2.5, this.selectedObject.scaleX + 0.05));
                 this.updateSelectionFramework();
                 this.syncScaleUI();
+            }
+        });
+
+        // 1. CLONACIÓN RÁPIDA (SPACE) (REQ 1)
+        this.input.keyboard.on('keydown-SPACE', () => {
+            const type = this.selectedType || (this.selectedObject ? this.selectedObject.getData('type') : null);
+            if (type) {
+                const x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
+                const y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
+                
+                // Si no hay tipo seleccionado explícitamente, usamos el del objeto anterior
+                if (!this.selectedType) this.selectedType = type;
+                
+                const s = this.placeObject(x, y);
+                // Clonamos la escala del seleccionado si lo hay
+                if (this.selectedObject) {
+                    s.setScale(this.selectedObject.scaleX, this.selectedObject.scaleY || this.selectedObject.scaleX);
+                }
+                
+                this.selectedType = null;
+                this.ghostBrush.setVisible(false);
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
             }
         });
 
@@ -779,19 +806,24 @@ class LevelEditorScene extends Phaser.Scene {
 
     playTest() {
         let all = [];
-        const proc = (g) => { if(!g) return; g.getChildren().forEach(o => {
-            all.push({ 
-                type: o.getData('type'), 
-                x: Math.round(o.x), 
-                y: Math.round(o.y), 
-                texture: o.texture.key,
-                config: o.getData('config') || {}, 
-                scaleX: o.scaleX, 
-                scaleY: o.scaleY 
+        const proc = (g) => { 
+            if(!g) return; 
+            g.getChildren().forEach(o => {
+                all.push({ 
+                    type: o.getData('type'), 
+                    x: Math.round(o.x), 
+                    y: Math.round(o.y), 
+                    texture: o.texture.key,
+                    config: o.getData('config') || {}, 
+                    scaleX: o.scaleX, 
+                    scaleY: o.scaleY 
+                });
             });
-        });};
+        };
+        // Unificación total (REQ 2)
         [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
-        localStorage.setItem('editor_test_level', JSON.stringify(all)); // REQ 3
+        
+        localStorage.setItem('editor_test_level', JSON.stringify(all));
         this.scene.start('GameScene', { testMode: true, startY: this.cameras.main.scrollY });
     }
 
@@ -828,6 +860,16 @@ class GameScene extends Phaser.Scene {
         this.pendingUfo = false;
         
         this.isTestMode = data && data.testMode; // REQ 3
+
+        // REQ 3: OHM ANIMATION
+        if (!this.anims.exists('ohm_pulse')) {
+            this.anims.create({ 
+                key: 'ohm_pulse', 
+                frames: [{key: 'ohm1'}, {key: 'ohm2'}], 
+                frameRate: 2, 
+                repeat: -1 
+            });
+        }
 
         this.ufoTargets = [
             Phaser.Math.Between(800, 1200),
@@ -924,6 +966,22 @@ class GameScene extends Phaser.Scene {
                 });
             }, callbackScope: this, loop: true });
         }
+
+        this.physics.add.overlap(this.player, this.ohms, (p, ohm) => {
+            gameState.score += 28;
+            try { this.sound.play('ohmSound'); } catch(e) {}
+            
+            this.tweens.add({
+                targets: ohm,
+                scale: 2,
+                alpha: 0,
+                duration: 200,
+                onComplete: () => ohm.destroy()
+            });
+            
+            const pointsText = this.add.text(ohm.x, ohm.y, '+28', { fontSize: '18px', fontFamily: '"Press Start 2P"', color: '#FFFFFF', stroke: '#ff69b4', strokeThickness: 4 }).setOrigin(0.5).setDepth(100);
+            this.tweens.add({ targets: pointsText, y: pointsText.y - 50, alpha: 0, duration: 600, onComplete: () => pointsText.destroy() });
+        });
 
         // PROCEDURAL VS TEST (REQ 3)
         if (this.isTestMode) {
@@ -1944,7 +2002,8 @@ class GameScene extends Phaser.Scene {
                         sprite = this.peaceItems.create(obj.x, obj.y, 'peace');
                         break;
                     case 'ohm':
-                        sprite = this.peaceItems.create(obj.x, obj.y, 'ohm1'); 
+                        sprite = this.ohms.create(obj.x, obj.y, 'ohm1'); 
+                        sprite.play('ohm_pulse');
                         break;
                     case 'cow':
                         sprite = this.cows.create(obj.x, obj.y, 'vaca1');

@@ -547,14 +547,53 @@ class LevelEditorScene extends Phaser.Scene {
 
         // 4. INPUTS
         this.cursors = this.input.keyboard.createCursorKeys();
+        
+        // RECUPERAR PERSISTENCIA (REQ 4) - Antes de los eventos de click
+        const saved = localStorage.getItem('editor_test_level');
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                data.forEach(obj => {
+                    this.selectedType = obj.type;
+                    this.currentKey = obj.texture || (obj.type === 'wall' ? 'wall1' : obj.type);
+                    const s = this.placeObject(obj.x, obj.y);
+                    if (obj.scaleX) s.setScale(obj.scaleX, obj.scaleY || obj.scaleX);
+                    if (obj.config) s.setData('config', obj.config);
+                });
+                // RESET STATE AFTER RESTORING
+                this.selectedType = null;
+                this.selectedObject = null;
+                this.ghostBrush.setVisible(false);
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                this.clearSelectionFramework();
+                const panel = document.getElementById('editor-attr-panel');
+                if (panel) panel.style.display = 'none';
+            } catch(e) { console.error("Persistence error:", e); }
+        }
+
         this.input.on('pointerdown', (pointer) => {
-            if (pointer.x < 160 || pointer.x > portraitWidth - 150) return;
             if (this.selectedType) {
                 this.placeObject(pointer.worldX, pointer.worldY);
                 // AUTO-DESELECT TOOL (QoL 1)
                 this.selectedType = null;
                 this.ghostBrush.setVisible(false);
                 document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+            }
+        });
+
+        // ESCALA CON TECLADO (REQ 1)
+        this.input.keyboard.on('keydown-LEFT', () => {
+            if (this.selectedObject) {
+                this.selectedObject.setScale(Math.max(0.1, this.selectedObject.scaleX - 0.05));
+                this.updateSelectionFramework();
+                this.syncScaleUI();
+            }
+        });
+        this.input.keyboard.on('keydown-RIGHT', () => {
+            if (this.selectedObject) {
+                this.selectedObject.setScale(Math.min(2.5, this.selectedObject.scaleX + 0.05));
+                this.updateSelectionFramework();
+                this.syncScaleUI();
             }
         });
 
@@ -569,6 +608,12 @@ class LevelEditorScene extends Phaser.Scene {
         });
 
         this.updateToolState();
+    }
+
+    syncScaleUI() {
+        if (!this.selectedObject) return;
+        const sx = document.getElementById('lbl-sx'); if(sx) sx.innerText = this.selectedObject.scaleX.toFixed(2);
+        const rng = document.getElementById('rng-sx'); if(rng) rng.value = this.selectedObject.scaleX;
     }
 
     updateToolState() {
@@ -735,11 +780,19 @@ class LevelEditorScene extends Phaser.Scene {
     playTest() {
         let all = [];
         const proc = (g) => { if(!g) return; g.getChildren().forEach(o => {
-            all.push({ type: o.getData('type'), x: Math.round(o.x), y: Math.round(o.y), texture: o.texture.key, config: o.getData('config') || {}, scaleX: o.scaleX, scaleY: o.scaleY });
+            all.push({ 
+                type: o.getData('type'), 
+                x: Math.round(o.x), 
+                y: Math.round(o.y), 
+                texture: o.texture.key,
+                config: o.getData('config') || {}, 
+                scaleX: o.scaleX, 
+                scaleY: o.scaleY 
+            });
         });};
         [this.walls, this.pools, this.peaceItems, this.ohms, this.cows, this.ufos, this.bananas].forEach(proc);
-        localStorage.setItem('level_test', JSON.stringify(all));
-        this.scene.start('GameScene', { startY: this.cameras.main.scrollY });
+        localStorage.setItem('editor_test_level', JSON.stringify(all)); // REQ 3
+        this.scene.start('GameScene', { testMode: true, startY: this.cameras.main.scrollY });
     }
 
     update() {
@@ -773,6 +826,8 @@ class GameScene extends Phaser.Scene {
         this.isAbducted = false; 
         this.ufoActive = false;
         this.pendingUfo = false;
+        
+        this.isTestMode = data && data.testMode; // REQ 3
 
         this.ufoTargets = [
             Phaser.Math.Between(800, 1200),
@@ -870,12 +925,15 @@ class GameScene extends Phaser.Scene {
             }, callbackScope: this, loop: true });
         }
 
-        // REQ 2 & 3: dedicated timers that never stop
-        this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
-        this.time.addEvent({ delay: 1500, callback: this.spawnPools, callbackScope: this, loop: true }); // REQ 3: Lluvia de piletas (1500ms)
-        this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
-        // Walls spawn every 3500ms
-        this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
+        // PROCEDURAL VS TEST (REQ 3)
+        if (this.isTestMode) {
+            this.loadEditorTestLevel();
+        } else {
+            this.time.addEvent({ delay: 2500, callback: this.spawnPeaceSigns, callbackScope: this, loop: true });
+            this.time.addEvent({ delay: 1500, callback: this.spawnPools, callbackScope: this, loop: true }); 
+            this.time.addEvent({ delay: 600, callback: this.spawnCloud, callbackScope: this, loop: true });
+            this.wallsTimer = this.time.addEvent({ delay: 3500, callback: this.spawnWalls, callbackScope: this, loop: true });
+        }
         
         this.time.addEvent({ delay: 60000, callback: () => {
             if (!this.ufoActive && !this.isTrippyMode && !this.isAbducted) {
@@ -1278,6 +1336,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnPools() {
+        if (this.isTestMode) return;
         if (this.ufoState !== 'IDLE') return;
 
         const spawnY_Pool = 900;
@@ -1316,6 +1375,7 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnPeaceSigns() {
+        if (this.isTestMode) return;
         // REQ 3: Aumentar frecuencia ~20% (era 4/10, ahora 5/10 aprox)
         if (Phaser.Math.Between(1, 10) <= 5) {
             const peaceX = Phaser.Math.Between(50, portraitWidth - 50);
@@ -1685,7 +1745,8 @@ class GameScene extends Phaser.Scene {
     }
 
     // New obstacle: wall segments with progress difficulty
-    spawnWalls() {
+    spawnWalls(yInput = null) {
+        if (this.isTestMode && !yInput) return;
         if (this.ufoState !== 'IDLE' || this.isWallsGracePeriod) return;
 
         // Pacing Dinámico REQ 4: Reducir delay de spawn con la distancia
@@ -1860,6 +1921,48 @@ class GameScene extends Phaser.Scene {
                 this.isInvulnerable = false;
             }
         });
+    }
+
+    loadEditorTestLevel() {
+        const saved = localStorage.getItem('editor_test_level');
+        if (!saved) return;
+        try {
+            const data = JSON.parse(saved);
+            data.forEach(obj => {
+                let sprite;
+                switch(obj.type) {
+                    case 'wall':
+                        sprite = this.walls.create(obj.x, obj.y, obj.texture || 'wall1');
+                        sprite.body.setAllowGravity(false);
+                        sprite.body.setImmovable(true);
+                        sprite.body.setVelocityY(-350); 
+                        break;
+                    case 'pool':
+                        sprite = this.pools.create(obj.x, obj.y, 'pool');
+                        break;
+                    case 'peace':
+                        sprite = this.peaceItems.create(obj.x, obj.y, 'peace');
+                        break;
+                    case 'ohm':
+                        sprite = this.peaceItems.create(obj.x, obj.y, 'ohm1'); 
+                        break;
+                    case 'cow':
+                        sprite = this.cows.create(obj.x, obj.y, 'vaca1');
+                        break;
+                    case 'ufo':
+                        sprite = this.ufos.create(obj.x, obj.y, 'ufo1');
+                        break;
+                    case 'banana':
+                        sprite = this.bananas.create(obj.x, obj.y, 'banana1');
+                        break;
+                }
+                if (sprite) {
+                    if (obj.scaleX) sprite.setScale(obj.scaleX, obj.scaleY || obj.scaleX);
+                    sprite.setData('type', obj.type);
+                    if (obj.config) sprite.setData('config', obj.config);
+                }
+            });
+        } catch(e) { console.error("Test load error:", e); }
     }
 }
 

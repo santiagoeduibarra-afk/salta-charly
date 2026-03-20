@@ -573,9 +573,8 @@ class GameScene extends Phaser.Scene {
         
         this.physics.add.overlap(this.player, this.cows, this.hitCow, null, this);
         this.physics.add.overlap(this.player, this.bananas, this.collectBanana, null, this);
-        // Pools are now collectables: award points on touch
         this.physics.add.overlap(this.player, this.pools, this.onPoolOverlap, null, this);
-        // Walls are lethal obstacles
+        // REGLA 1: Collider exacto después de definir player y walls
         this.wallCollider = this.physics.add.collider(this.player, this.walls, this.onWallHit, null, this);
 
         } catch (error) {
@@ -904,9 +903,14 @@ class GameScene extends Phaser.Scene {
 
         const spawnY_Pool = 900;
         
-        // REQ 4: Cero Solapamiento Estricto (200px)
-        const conflict = this.walls.getChildren().some(w => Phaser.Math.Distance.Between(portraitWidth/2, spawnY_Pool, w.x, w.y) < 200);
-        if (conflict) return; 
+        // REGLA 3: Prohibición Total de Overlapping (300px buffer vertical)
+        let canSpawn = true;
+        this.walls.getChildren().forEach(wall => {
+            if (Math.abs(wall.y - spawnY_Pool) < 300) {
+                canSpawn = false;
+            }
+        });
+        if (!canSpawn) return;
 
         // Frecuencia ~85%
         if (Phaser.Math.Between(1, 100) <= 85) {
@@ -999,12 +1003,11 @@ class GameScene extends Phaser.Scene {
             if (gameState.meters >= targetMeters && this.ufoState === 'IDLE') {
                 console.log('STATE CHANGE: IDLE -> WARNING');
                 this.ufoState = 'WARNING';
-                // Consumir el índice inmediatamente para evitar bucle de frames
                 this.currentUfoIndex++; 
-                // REQ 3: Limpiar vacas existentes para dejar espacio al UFO
-                if (this.cows) this.cows.clear(true, true);
                 
-                // Trigger natural: el UFO aparecerá en la siguiente validación
+                // REGLA 4: Limpieza del Espacio Aéreo para el UFO
+                if (this.cows) this.cows.clear(true, true);
+                if (this.walls) this.walls.clear(true, true);
             }
 
             if (this.ufoState === 'WARNING') {
@@ -1237,12 +1240,13 @@ class GameScene extends Phaser.Scene {
         this.tweens.add({ targets: popup, y: popup.y - 50, alpha: 0, duration: 800, onComplete: () => popup.destroy() });
     }
 
-    // REQ 3: onPoolOverlap (Splash & Shrink)
+    // REGLA 2: Piletas = Sumar Puntos (Cero Daño)
     onPoolOverlap(player, pool) {
         if (!pool || !pool.active || pool.used) return;
-        pool.used = true; // REQ 3: Evitar doble trigger
+        pool.used = true;
         
-        this.score += 50;
+        // Sumar puntos
+        gameState.score += 50;
         this.scoreText.setText('SCORE: ' + gameState.score + (gameState.multiplier > 1 ? ' (10X)' : ''));
         try { this.sound.play('splash'); } catch(e) {}
 
@@ -1251,7 +1255,7 @@ class GameScene extends Phaser.Scene {
 
         pool.disableBody(true, false);
 
-        // Animación de Charly: Inmersión REQ 3
+        // Animación de Charly (Inmersión visual únicamente)
         this.tweens.add({
             targets: player,
             scaleX: (this.savedScaleX || 1) * 0.6,
@@ -1267,7 +1271,7 @@ class GameScene extends Phaser.Scene {
             }
         });
 
-        // Animación de la pileta: Splash REQ 3
+        // Animación y destrucción de la pileta
         this.tweens.add({
             targets: pool,
             scale: pool.scale * 2.0,

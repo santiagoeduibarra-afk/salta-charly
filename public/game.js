@@ -462,6 +462,8 @@ class LevelEditorScene extends Phaser.Scene {
         this.load.image('ufo1', 'assets/ufo1.png');
         this.load.image('charly', 'assets/charly.png');
         this.load.image('banana1', 'assets/BANANA1.png');
+        this.load.image('ohm1', 'assets/OHM1.png');
+        this.load.image('ohm2', 'assets/OHM2.png');
     }
 
     create() {
@@ -484,36 +486,55 @@ class LevelEditorScene extends Phaser.Scene {
         this.peaceItems = this.add.group();
         this.cows = this.add.group();
         this.ufos = this.add.group();
+        this.ohms = this.add.group();
 
         this.selectedType = 'pool';
         this.currentKey = 'pool';
 
-        // 2. GHOST BRUSH (Seguidor de ratón)
+        // 2. GHOST BRUSH (Pincel)
         this.ghostBrush = this.add.sprite(0, 0, 'pool').setAlpha(0.5).setDepth(1001).setScale(0.4);
 
-        // 3. UI - METER & BUTTONS (EXTERNO AL CANVAS)
+        // 3. UI - EXTERNAL HTML ELEMENTS
         this.meterText = this.add.text(portraitWidth/2, 100, '0m', { fontSize: '28px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setScrollFactor(0).setOrigin(0.5).setDepth(2002);
         
-        // UI SUPERIOR (EXPORTAR / PROBAR)
-        const uiContainer = document.createElement('div');
-        uiContainer.id = 'editor-main-ui';
-        document.body.appendChild(uiContainer);
+        // UI SUPERIOR (EXPORT/TEST)
+        const uiMain = document.createElement('div');
+        uiMain.id = 'editor-main-ui';
+        document.body.appendChild(uiMain);
 
-        const exportBtn = document.createElement('button');
-        exportBtn.innerText = 'EXPORTAR';
-        exportBtn.className = 'editor-btn-fixed';
-        exportBtn.onclick = () => this.exportLevel();
-        
-        const testBtn = document.createElement('button');
-        testBtn.innerText = 'PROBAR';
-        testBtn.className = 'editor-btn-fixed';
-        testBtn.style.background = '#4CAF50';
-        testBtn.onclick = () => this.playTest();
+        ['EXPORTAR', 'PROBAR'].forEach(txt => {
+            const btn = document.createElement('button');
+            btn.innerText = txt;
+            btn.className = 'editor-btn-fixed';
+            if (txt === 'PROBAR') {
+                btn.style.background = '#4CAF50';
+                btn.onclick = () => this.playTest();
+            } else {
+                btn.onclick = () => this.exportLevel();
+            }
+            uiMain.appendChild(btn);
+        });
 
-        uiContainer.appendChild(exportBtn);
-        uiContainer.appendChild(testBtn);
+        // PANEL SELECTOR DE HERRAMIENTAS
+        const toolSelector = document.createElement('div');
+        toolSelector.id = 'editor-tool-selector';
+        document.body.appendChild(toolSelector);
 
-        // PANEL DE ATRIBUTOS (INICIALMENTE OCULTO)
+        const tools = ['wall', 'pool', 'peace', 'ohm', 'cow', 'ufo', 'banana'];
+        tools.forEach(t => {
+            const btn = document.createElement('button');
+            btn.innerText = t.toUpperCase();
+            btn.className = 'tool-btn' + (t === this.selectedType ? ' active' : '');
+            btn.onclick = () => {
+                document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                this.selectedType = t;
+                this.updateToolState();
+            };
+            toolSelector.appendChild(btn);
+        });
+
+        // PANEL DE PROPIEDADES (DINÁMICO)
         const attrPanel = document.createElement('div');
         attrPanel.id = 'editor-attr-panel';
         document.body.appendChild(attrPanel);
@@ -521,56 +542,69 @@ class LevelEditorScene extends Phaser.Scene {
         const hintDiv = document.createElement('div');
         hintDiv.className = 'editor-hint';
         hintDiv.innerHTML = `
-            W/P/S/C/U: Seleccion | ARROBAS: Mover Camara<br>
+            HERRAMIENTAS IZQUIERDA | ARROBAS: Mover Camara<br>
             CLICK: Crear | CLICK OBJETO: Editar | DRAG: Mover
         `;
         document.body.appendChild(hintDiv);
 
-        // 4. CONTROLES Y GRID
+        // 4. CONTROLES
         this.GRID_SIZE = 40;
         this.cursors = this.input.keyboard.createCursorKeys();
-        this.keys = this.input.keyboard.addKeys({
-            W: Phaser.Input.Keyboard.KeyCodes.W,
-            P: Phaser.Input.Keyboard.KeyCodes.P,
-            S: Phaser.Input.Keyboard.KeyCodes.S,
-            C: Phaser.Input.Keyboard.KeyCodes.C,
-            U: Phaser.Input.Keyboard.KeyCodes.U
-        });
-
+        
         this.input.on('pointerdown', (pointer) => {
-            if (pointer.x > portraitWidth - 150 && pointer.y < 120) return; 
-            // Crear solo si no ha sido capturado por un objeto interactivo
+            // Evitar click si el puntero está sobre la UI HTML
+            if (pointer.x < 160 || pointer.x > portraitWidth - 150) return;
             this.placeObject(pointer.worldX, pointer.worldY);
         });
 
         this.events.on('shutdown', () => { 
-            if (uiContainer) uiContainer.remove(); 
-            if (attrPanel) attrPanel.remove();
-            if (hintDiv) hintDiv.remove();
+            [uiMain, toolSelector, attrPanel, hintDiv].forEach(el => { if(el) el.remove(); });
         });
+
+        this.updateToolState();
+    }
+
+    updateToolState() {
+        this.currentKey = this.selectedType === 'wall' ? 'wall1' : 
+                          this.selectedType === 'ohm' ? 'ohm1' : 
+                          this.selectedType === 'cow' ? 'vaca1' : 
+                          this.selectedType === 'ufo' ? 'ufo1' : 
+                          this.selectedType === 'banana' ? 'banana1' :
+                          this.selectedType === 'pool' ? 'pool' : 'peace';
+        
+        this.ghostBrush.setTexture(this.currentKey);
+        
+        // Escalar el fantasma
+        if (this.selectedType === 'wall') this.ghostBrush.setDisplaySize(60, 40);
+        else if (this.selectedType === 'pool' || this.selectedType === 'ufo') this.ghostBrush.setScale(0.4);
+        else if (this.selectedType === 'peace' || this.selectedType === 'ohm' || this.selectedType === 'banana') this.ghostBrush.setScale(0.6);
+        else if (this.selectedType === 'cow') this.ghostBrush.setScale(0.8);
     }
 
     placeObject(x, y) {
-        let texture = this.currentKey;
         if (this.selectedType === 'wall') {
             x = Phaser.Math.Snap.To(x, this.GRID_SIZE);
             y = Phaser.Math.Snap.To(y, this.GRID_SIZE);
         }
 
-        let sprite = this.add.sprite(x, y, texture);
+        const sprite = this.add.sprite(x, y, this.currentKey);
         sprite.setInteractive({ draggable: true });
         sprite.setData('type', this.selectedType);
         sprite.setData('config', { velocityY: 0 });
 
-        // Escalas iniciales
+        // Aplicar escala inicial exacta
         if (this.selectedType === 'wall') sprite.setDisplaySize(60, 40);
-        else if (this.selectedType === 'pool') sprite.setScale(0.4);
-        else if (this.selectedType === 'peace') sprite.setScale(0.6);
+        else if (this.selectedType === 'pool' || this.selectedType === 'ufo') sprite.setScale(0.4);
+        else if (this.selectedType === 'peace' || this.selectedType === 'ohm' || this.selectedType === 'banana') sprite.setScale(0.6);
         else if (this.selectedType === 'cow') sprite.setScale(0.8);
-        else if (this.selectedType === 'ufo') sprite.setScale(0.4);
 
-        // DRAG Y SNAP
-        sprite.on('drag', (pointer, dragX, dragY) => {
+        // EVENTOS AISLADOS (Fix: Overlap)
+        sprite.on('pointerdown', (ptr) => {
+            ptr.event.stopPropagation(); // BLOQUEA el click de fondo
+            this.openPropertiesPanel(sprite);
+        });
+
+        sprite.on('drag', (ptr, dragX, dragY) => {
             if (sprite.getData('type') === 'wall') {
                 sprite.x = Phaser.Math.Snap.To(dragX, this.GRID_SIZE);
                 sprite.y = Phaser.Math.Snap.To(dragY, this.GRID_SIZE);
@@ -580,21 +614,25 @@ class LevelEditorScene extends Phaser.Scene {
             }
         });
 
-        // SELECCIÓN Y STOP PROPAGATION
-        sprite.on('pointerdown', (pointer) => {
-            pointer.event.stopPropagation(); // Evita crear objeto nuevo atras
-            this.selectObjectForEditing(sprite);
-        });
+        // Autoselección inmediata
+        this.openPropertiesPanel(sprite);
 
-        // AGREGAR AL GRUPO CORRESPONDIENTE
+        // Sorting
         if (this.selectedType === 'wall') this.walls.add(sprite);
         else if (this.selectedType === 'pool') this.pools.add(sprite);
         else if (this.selectedType === 'peace') this.peaceItems.add(sprite);
+        else if (this.selectedType === 'ohm') this.ohms.add(sprite);
         else if (this.selectedType === 'cow') this.cows.add(sprite);
         else if (this.selectedType === 'ufo') this.ufos.add(sprite);
+        else if (this.selectedType === 'banana') {
+            if (!this.bananas) this.bananas = this.add.group();
+            this.bananas.add(sprite);
+        }
+
+        return sprite;
     }
 
-    selectObjectForEditing(sprite) {
+    openPropertiesPanel(sprite) {
         if (this.selectedObject) this.selectedObject.clearTint();
         this.selectedObject = sprite;
         this.selectedObject.setTint(0x00ff00);
@@ -606,15 +644,17 @@ class LevelEditorScene extends Phaser.Scene {
         const cfg = sprite.getData('config');
 
         panel.innerHTML = `
-            <div>TIPO: ${type}</div>
-            <label>ESCALA X: <span id="lbl-sx">${sprite.scaleX.toFixed(2)}</span></label>
+            <div style="color:#00ff00; margin-bottom:5px; font-size:7px;">EDITANDO: ${type}</div>
+            <label>ESCALA: <span id="lbl-sx">${sprite.scaleX.toFixed(2)}</span></label>
             <input type="range" min="0.1" max="2" step="0.05" value="${sprite.scaleX}" id="rng-sx">
             
             <label>VELOCIDAD Y: <span id="lbl-vy">${cfg.velocityY}</span></label>
             <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="rng-vy">
             
-            <button id="btn-close-attr">CERRAR</button>
-            <button id="btn-del-attr" style="background:#f00">ELIMINAR</button>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <button id="btn-close-attr" style="flex:1">OK</button>
+                <button id="btn-del-attr" style="background:#f00; flex:1">BORRAR</button>
+            </div>
         `;
 
         document.getElementById('rng-sx').oninput = (e) => {
@@ -642,6 +682,7 @@ class LevelEditorScene extends Phaser.Scene {
     exportLevel() {
         let allObjects = [];
         const processGroup = (group) => {
+            if (!group) return;
             group.getChildren().forEach(o => {
                 allObjects.push({
                     type: o.getData('type'),
@@ -654,8 +695,10 @@ class LevelEditorScene extends Phaser.Scene {
         processGroup(this.walls);
         processGroup(this.pools);
         processGroup(this.peaceItems);
+        processGroup(this.ohms);
         processGroup(this.cows);
         processGroup(this.ufos);
+        processGroup(this.bananas);
 
         const blob = new Blob([JSON.stringify(allObjects, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -667,6 +710,7 @@ class LevelEditorScene extends Phaser.Scene {
     playTest() {
         let allObjects = [];
         const processGroup = (group) => {
+            if (!group) return;
             group.getChildren().forEach(o => {
                 allObjects.push({
                     type: o.getData('type'),
@@ -680,12 +724,15 @@ class LevelEditorScene extends Phaser.Scene {
         processGroup(this.walls);
         processGroup(this.pools);
         processGroup(this.peaceItems);
+        processGroup(this.ohms);
         processGroup(this.cows);
         processGroup(this.ufos);
+        processGroup(this.bananas);
 
         localStorage.setItem('level_test', JSON.stringify(allObjects));
         this.scene.start('GameScene', { startY: this.cameras.main.scrollY });
     }
+
 
     update() {
         // Navegación

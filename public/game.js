@@ -494,45 +494,40 @@ class LevelEditorScene extends Phaser.Scene {
         // 3. UI - METER & BUTTONS (EXTERNO AL CANVAS)
         this.meterText = this.add.text(portraitWidth/2, 100, '0m', { fontSize: '28px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 5 }).setScrollFactor(0).setOrigin(0.5).setDepth(2002);
         
-        // Contenedor HTML Blindado
+        // UI SUPERIOR (EXPORTAR / PROBAR)
         const uiContainer = document.createElement('div');
-        uiContainer.id = 'editor-ui-overlay';
-        uiContainer.style.position = 'absolute';
-        uiContainer.style.top = '20px';
-        uiContainer.style.right = '20px';
-        uiContainer.style.zIndex = '9999';
-        uiContainer.style.display = 'flex';
-        uiContainer.style.flexDirection = 'column';
-        uiContainer.style.alignItems = 'flex-end';
-        uiContainer.style.gap = '10px';
-        uiContainer.style.pointerEvents = 'none'; // Permitir clicks debajo si no hay botones
+        uiContainer.id = 'editor-main-ui';
         document.body.appendChild(uiContainer);
 
         const exportBtn = document.createElement('button');
-        exportBtn.innerText = 'EXPORTAR NIVEL';
+        exportBtn.innerText = 'EXPORTAR';
         exportBtn.className = 'editor-btn-fixed';
-        exportBtn.style.pointerEvents = 'auto';
         exportBtn.onclick = () => this.exportLevel();
         
         const testBtn = document.createElement('button');
-        testBtn.innerText = 'PROBAR AQUÍ';
+        testBtn.innerText = 'PROBAR';
         testBtn.className = 'editor-btn-fixed';
         testBtn.style.background = '#4CAF50';
-        testBtn.style.pointerEvents = 'auto';
         testBtn.onclick = () => this.playTest();
 
         uiContainer.appendChild(exportBtn);
         uiContainer.appendChild(testBtn);
 
+        // PANEL DE ATRIBUTOS (INICIALMENTE OCULTO)
+        const attrPanel = document.createElement('div');
+        attrPanel.id = 'editor-attr-panel';
+        document.body.appendChild(attrPanel);
+
         const hintDiv = document.createElement('div');
         hintDiv.className = 'editor-hint';
         hintDiv.innerHTML = `
-            W: Pared | P: Pileta | S: Peace | C: Vaca | U: UFO<br>
-            FLECHAS: Arriba/Abajo para navegar | CLICK: Colocar
+            W/P/S/C/U: Seleccion | ARROBAS: Mover Camara<br>
+            CLICK: Crear | CLICK OBJETO: Editar | DRAG: Mover
         `;
         document.body.appendChild(hintDiv);
 
-        // 4. CONTROLES
+        // 4. CONTROLES Y GRID
+        this.GRID_SIZE = 40;
         this.cursors = this.input.keyboard.createCursorKeys();
         this.keys = this.input.keyboard.addKeys({
             W: Phaser.Input.Keyboard.KeyCodes.W,
@@ -543,48 +538,105 @@ class LevelEditorScene extends Phaser.Scene {
         });
 
         this.input.on('pointerdown', (pointer) => {
-            if (pointer.x > portraitWidth - 150 && pointer.y < 150) return; // Evitar click bajo botones
+            if (pointer.x > portraitWidth - 150 && pointer.y < 120) return; 
+            // Crear solo si no ha sido capturado por un objeto interactivo
             this.placeObject(pointer.worldX, pointer.worldY);
         });
 
         this.events.on('shutdown', () => { 
             if (uiContainer) uiContainer.remove(); 
+            if (attrPanel) attrPanel.remove();
             if (hintDiv) hintDiv.remove();
         });
     }
 
     placeObject(x, y) {
-        let sprite;
-        switch(this.selectedType) {
-            case 'wall':
-                sprite = this.add.sprite(x, y, this.currentKey);
-                sprite.setDisplaySize(60, 40); // REQ 1: Tamaño exacto del juego
-                sprite.setData('type', 'wall');
-                sprite.setData('config', { wallType: this.currentKey });
-                this.walls.add(sprite);
-                break;
-            case 'pool':
-                sprite = this.add.sprite(x, y, 'pool').setScale(0.4);
-                sprite.setData('type', 'pool');
-                this.pools.add(sprite);
-                break;
-            case 'peace':
-                sprite = this.add.sprite(x, y, 'peace').setScale(0.6);
-                sprite.setData('type', 'peace');
-                this.peaceItems.add(sprite);
-                break;
-            case 'cow':
-                sprite = this.add.sprite(x, y, 'vaca1').setScale(0.8);
-                sprite.setData('type', 'cow');
-                sprite.setData('config', { direction: 'left', speed: 2 });
-                this.cows.add(sprite);
-                break;
-            case 'ufo':
-                sprite = this.add.sprite(x, y, 'ufo1').setScale(0.4);
-                sprite.setData('type', 'ufo');
-                this.ufos.add(sprite);
-                break;
+        let texture = this.currentKey;
+        if (this.selectedType === 'wall') {
+            x = Phaser.Math.Snap.To(x, this.GRID_SIZE);
+            y = Phaser.Math.Snap.To(y, this.GRID_SIZE);
         }
+
+        let sprite = this.add.sprite(x, y, texture);
+        sprite.setInteractive({ draggable: true });
+        sprite.setData('type', this.selectedType);
+        sprite.setData('config', { velocityY: 0 });
+
+        // Escalas iniciales
+        if (this.selectedType === 'wall') sprite.setDisplaySize(60, 40);
+        else if (this.selectedType === 'pool') sprite.setScale(0.4);
+        else if (this.selectedType === 'peace') sprite.setScale(0.6);
+        else if (this.selectedType === 'cow') sprite.setScale(0.8);
+        else if (this.selectedType === 'ufo') sprite.setScale(0.4);
+
+        // DRAG Y SNAP
+        sprite.on('drag', (pointer, dragX, dragY) => {
+            if (sprite.getData('type') === 'wall') {
+                sprite.x = Phaser.Math.Snap.To(dragX, this.GRID_SIZE);
+                sprite.y = Phaser.Math.Snap.To(dragY, this.GRID_SIZE);
+            } else {
+                sprite.x = dragX;
+                sprite.y = dragY;
+            }
+        });
+
+        // SELECCIÓN Y STOP PROPAGATION
+        sprite.on('pointerdown', (pointer) => {
+            pointer.event.stopPropagation(); // Evita crear objeto nuevo atras
+            this.selectObjectForEditing(sprite);
+        });
+
+        // AGREGAR AL GRUPO CORRESPONDIENTE
+        if (this.selectedType === 'wall') this.walls.add(sprite);
+        else if (this.selectedType === 'pool') this.pools.add(sprite);
+        else if (this.selectedType === 'peace') this.peaceItems.add(sprite);
+        else if (this.selectedType === 'cow') this.cows.add(sprite);
+        else if (this.selectedType === 'ufo') this.ufos.add(sprite);
+    }
+
+    selectObjectForEditing(sprite) {
+        if (this.selectedObject) this.selectedObject.clearTint();
+        this.selectedObject = sprite;
+        this.selectedObject.setTint(0x00ff00);
+
+        const panel = document.getElementById('editor-attr-panel');
+        panel.style.display = 'flex';
+        
+        const type = sprite.getData('type').toUpperCase();
+        const cfg = sprite.getData('config');
+
+        panel.innerHTML = `
+            <div>TIPO: ${type}</div>
+            <label>ESCALA X: <span id="lbl-sx">${sprite.scaleX.toFixed(2)}</span></label>
+            <input type="range" min="0.1" max="2" step="0.05" value="${sprite.scaleX}" id="rng-sx">
+            
+            <label>VELOCIDAD Y: <span id="lbl-vy">${cfg.velocityY}</span></label>
+            <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="rng-vy">
+            
+            <button id="btn-close-attr">CERRAR</button>
+            <button id="btn-del-attr" style="background:#f00">ELIMINAR</button>
+        `;
+
+        document.getElementById('rng-sx').oninput = (e) => {
+            const val = parseFloat(e.target.value);
+            sprite.setScale(val);
+            document.getElementById('lbl-sx').innerText = val.toFixed(2);
+        };
+        document.getElementById('rng-vy').oninput = (e) => {
+            const val = parseInt(e.target.value);
+            cfg.velocityY = val;
+            document.getElementById('lbl-vy').innerText = val;
+        };
+        document.getElementById('btn-close-attr').onclick = () => {
+            panel.style.display = 'none';
+            sprite.clearTint();
+            this.selectedObject = null;
+        };
+        document.getElementById('btn-del-attr').onclick = () => {
+            sprite.destroy();
+            panel.style.display = 'none';
+            this.selectedObject = null;
+        };
     }
 
     exportLevel() {
@@ -644,8 +696,13 @@ class LevelEditorScene extends Phaser.Scene {
         this.meterText.setText(Math.floor(this.cameras.main.scrollY * 0.1) + 'm');
 
         // Ghost Brush
-        this.ghostBrush.x = this.input.activePointer.worldX;
-        this.ghostBrush.y = this.input.activePointer.worldY;
+        if (this.selectedType === 'wall') {
+            this.ghostBrush.x = Phaser.Math.Snap.To(this.input.activePointer.worldX, this.GRID_SIZE);
+            this.ghostBrush.y = Phaser.Math.Snap.To(this.input.activePointer.worldY, this.GRID_SIZE);
+        } else {
+            this.ghostBrush.x = this.input.activePointer.worldX;
+            this.ghostBrush.y = this.input.activePointer.worldY;
+        }
 
         // Teclas rápidas
         if (Phaser.Input.Keyboard.JustDown(this.keys.W)) {

@@ -39,7 +39,9 @@ input[type="text"] {
     width: 80%;
 }
 
-.editor-btn-fixed { position: absolute; top: 20px; z-index: 2000; font-family: 'Press Start 2P'; font-size: 10px; padding: 10px; border: 3px solid #ff69b4; cursor: pointer; color: white; background: #222; }
-#export-btn { left: 20px; background: #ff69b4; }
-#test-btn { right: 20px; background: #4CAF50; border-color: #2E7D32; }
-.editor-hint { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 2000; font-family: 'Press Start 2P'; font-size: 7px; color: white; background: rgba(0,0,0,0.6); padding: 10px; pointer-events: none; text-align: center; line-height: 1.6; }
+.editor-btn-fixed { font-family: 'Press Start 2P'; font-size: 10px; padding: 10px; border: 3px solid #ff69b4; cursor: pointer; color: white; background: #222; }
+#editor-main-ui { position: fixed; top: 20px; right: 20px; z-index: 999999; display: flex; gap: 15px; pointer-events: auto; }
+#editor-attr-panel { position: fixed; top: 20px; left: 20px; z-index: 999999; background: rgba(34, 34, 34, 0.95); border: 3px solid #ff69b4; padding: 15px; color: white; font-family: 'Press Start 2P'; font-size: 8px; width: 180px; display: none; pointer-events: auto; flex-direction: column; gap: 10px; }
+#editor-attr-panel input { width: 100%; margin-top: 5px; }
+#editor-attr-panel button { margin-top: 10px; cursor: pointer; padding: 6px; font-family: 'Press Start 2P'; font-size: 7px; background: #ff69b4; color: white; border: none; }
+.editor-hint { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 999999; font-family: 'Press Start 2P'; font-size: 7px; color: white; background: rgba(0,0,0,0.6); padding: 10px; pointer-events: none; text-align: center; line-height: 1.6; }

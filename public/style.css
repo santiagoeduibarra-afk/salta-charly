@@ -39,9 +39,17 @@ input[type="text"] {
     width: 80%;
 }
 
-.editor-toolbar { position: absolute; top: 0; left: 0; width: 100%; background: #222; display: flex; gap: 10px; align-items: center; padding: 10px; z-index: 2000; pointer-events: all; border-bottom: 2px solid #ff69b4; }
-.tool-icon { width: 40px; height: 40px; cursor: pointer; border: 2px solid transparent; }
-.tool-icon.selected { border-color: #ff69b4; background: rgba(255,105,180,0.3); }
-.properties-panel { position: absolute; right: 10px; top: 120px; width: 200px; background: rgba(0,0,0,0.85); color: #FFF; padding: 15px; border: 3px solid #ff69b4; font-family: 'Press Start 2P'; font-size: 8px; z-index: 2001; line-height: 1.5; }
-.properties-panel input { display: block; width: 100%; margin: 10px 0; }
-.editor-btn { background: #ff69b4; color: white; border: none; padding: 5px 10px; margin: 5px 0; font-family: 'Press Start 2P'; font-size: 8px; cursor: pointer; }
+.editor-sidebar { position: absolute; left: 0; top: 0; width: 250px; height: 100%; background: #222; border-right: 2px solid #ff69b4; display: flex; flex-direction: column; padding: 15px; z-index: 2000; box-sizing: border-box; overflow-y: auto; color: white; }
+.sidebar-section { margin-bottom: 25px; }
+.sidebar-title { font-family: 'Press Start 2P'; font-size: 10px; color: #ff69b4; margin-bottom: 15px; text-transform: uppercase; }
+.tool-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.tool-item { background: #333; border: 2px solid transparent; padding: 10px; display: flex; flex-direction: column; align-items: center; cursor: pointer; transition: 0.2s; }
+.tool-item.selected { border-color: #ff69b4; background: rgba(255, 105, 180, 0.2); }
+.tool-item img { width: 40px; height: 40px; margin-bottom: 5px; pointer-events: none; }
+.tool-item span { font-size: 7px; pointer-events: none; text-align: center; }
+.property-controls label { display: block; margin-top: 15px; font-size: 8px; color: #BBB; }
+.property-controls input { width: 100%; margin-top: 5px; }
+.sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.sidebar-btn { width: 100%; background: #ff69b4; color: white; border: none; padding: 10px; font-family: 'Press Start 2P'; font-size: 8px; cursor: pointer; border-radius: 4px; }
+.sidebar-btn.secondary { background: #444; }
+.sidebar-btn.test { background: #4CAF50; margin-top: 5px; }

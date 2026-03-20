@@ -451,6 +451,17 @@ class LobbyScene extends Phaser.Scene {
 class LevelEditorScene extends Phaser.Scene {
     constructor() { super('LevelEditorScene'); }
 
+    preload() {
+        // Garantizar que todas las texturas estén cargadas (Fix: Gray Boxes)
+        this.load.image('wall1', 'assets/wall1.png');
+        this.load.image('wall2', 'assets/wall2.png');
+        this.load.image('pool', 'assets/POOL.png');
+        this.load.image('peace', 'assets/PEACE.PNG');
+        this.load.image('vaca1', 'assets/VACA1.png');
+        this.load.image('vaca2', 'assets/VACA2.png');
+        this.load.image('ufo1', 'assets/ufo1.png');
+    }
+
     create() {
         // 1. WYSIWYG ENVIRONMENT
         this.sky = this.add.graphics();
@@ -460,8 +471,9 @@ class LevelEditorScene extends Phaser.Scene {
         this.bgClouds = this.add.group();
         for(let i=0; i<30; i++) {
             const cy = i * 400 + Phaser.Math.Between(-100, 100);
-            const cloud = this.add.sprite(Phaser.Math.Between(0, portraitWidth), cy, 'cloud');
-            cloud.setScale(Phaser.Math.FloatBetween(0.8, 1.5)).setAlpha(0.6);
+            const cloud = this.add.sprite(Phaser.Math.Between(0, portraitWidth), cy, 'fluffy_cloud');
+            cloud.setScale(Phaser.Math.FloatBetween(0.8, 1.5)).setAlpha(0.2);
+            cloud.setDepth(0);
             this.bgClouds.add(cloud);
         }
 
@@ -470,47 +482,53 @@ class LevelEditorScene extends Phaser.Scene {
         this.selectedObject = null;
         this.previewActive = false;
 
-        // 2. DOM UI - TOOLBAR
-        const toolbarHtml = `
-            <div class="editor-toolbar">
-                <img src="assets/wall1.png" class="tool-icon selected" data-tool="wall1">
-                <img src="assets/POOL.png" class="tool-icon" data-tool="pool">
-                <img src="assets/PEACE.PNG" class="tool-icon" data-tool="peace">
-                <img src="assets/VACA1.png" class="tool-icon" data-tool="vaca1">
-                <img src="assets/ufo1.png" class="tool-icon" data-tool="ufo1">
-                <div style="flex-grow:1"></div>
-                <button class="editor-btn" id="export-json">EXPORT</button>
-                <button class="editor-btn" id="test-drop" style="background:#0F0">TEST HERE</button>
+        // 2. CANVA-STYLE SIDEBAR
+        const sidebarHtml = `
+            <div id="editor-sidebar" class="editor-sidebar">
+                <div class="sidebar-section" id="sidebar-main-content">
+                    <!-- Dinámicamente llenado por showToolsGrid o showPropertyPanel -->
+                </div>
+                
+                <div class="sidebar-footer">
+                    <button class="sidebar-btn secondary" id="btn-back-menu">VOLVER AL MENU</button>
+                    <button class="sidebar-btn" id="export-json">EXPORTAR NIVEL (JSON)</button>
+                    <button class="sidebar-btn test" id="test-drop">PROBAR NIVEL AQUÍ</button>
+                </div>
             </div>
         `;
-        const toolbar = this.add.dom(0, 0).createFromHTML(toolbarHtml).setScrollFactor(0).setOrigin(0,0);
+        this.sidebarDOM = this.add.dom(0, 0).createFromHTML(sidebarHtml).setOrigin(0,0).setScrollFactor(0);
         
-        toolbar.addListener('click');
-        toolbar.on('click', (event) => {
-            if (event.target.dataset.tool) {
-                this.selectedTool = event.target.dataset.tool;
-                const icons = document.querySelectorAll('.tool-icon');
-                icons.forEach(i => i.classList.remove('selected'));
-                event.target.classList.add('selected');
+        this.sidebarDOM.addListener('click');
+        this.sidebarDOM.on('click', (event) => {
+            const tool = event.target.closest('.tool-item');
+            if (tool) {
+                this.selectedTool = tool.dataset.tool;
+                this.updateToolSelectionUI();
             }
+            if (event.target.id === 'btn-back-tools') this.showToolsGrid();
+            if (event.target.id === 'btn-back-menu') this.scene.start('MenuScene');
             if (event.target.id === 'export-json') this.exportLevel();
             if (event.target.id === 'test-drop') this.playTest();
+            if (event.target.id === 'btn-delete') this.deleteSelected();
         });
 
-        // 3. UI - DISTANCE METER (WYSIWYG)
-        this.meterText = this.add.text(20, 120, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setScrollFactor(0).setDepth(2002);
+        this.showToolsGrid();
+
+        // 3. UI - DISTANCE METER & CONTROLS
+        this.meterText = this.add.text(265, 120, '0m', { fontSize: '24px', fontFamily: '"Press Start 2P"', color: '#FFFF00', stroke: '#ff69b4', strokeThickness: 4 }).setScrollFactor(0).setDepth(2002);
         
-        // 4. MOUSE/KEY CONTROLS
+        // MOUSE/WHEEL
         this.input.on('wheel', (pointer, gameObjects, deltaX, deltaY, deltaZ) => {
             this.cameras.main.scrollY += deltaY * 2;
         });
 
         this.input.on('pointerdown', (pointer) => {
-            if (pointer.y < 120) return;
+            // No interactuar si el click es sobre el sidebar (X < 250)
+            if (pointer.x < 250) return;
+            
             const wx = pointer.worldX;
             const wy = pointer.worldY;
             
-            // Selection or Placement?
             const clicked = this.placedObjects.getChildren().find(o => o.getBounds().contains(wx, wy));
             if (clicked) {
                 this.selectObject(clicked);
@@ -520,15 +538,44 @@ class LevelEditorScene extends Phaser.Scene {
         });
 
         this.cursors = this.input.keyboard.createCursorKeys();
-        
-        // Properties Panel (Hidden initially)
-        this.propPanel = document.createElement('div');
-        this.propPanel.className = 'properties-panel';
-        this.propPanel.style.display = 'none';
-        document.body.appendChild(this.propPanel);
+        this.events.on('shutdown', () => { if (this.sidebarDOM) this.sidebarDOM.destroy(); });
+    }
 
-        this.events.on('shutdown', () => {
-            if (this.propPanel) this.propPanel.remove();
+    showToolsGrid() {
+        if (this.selectedObject) this.selectedObject.clearTint();
+        this.selectedObject = null;
+
+        const mainContent = document.getElementById('sidebar-main-content');
+        if (!mainContent) return;
+
+        mainContent.innerHTML = `
+            <div class="sidebar-title">Herramientas</div>
+            <div class="tool-grid">
+                <div class="tool-item ${this.selectedTool==='wall1'?'selected':''}" data-tool="wall1">
+                    <img src="assets/wall1.png"><span>PARED</span>
+                </div>
+                <div class="tool-item ${this.selectedTool==='pool'?'selected':''}" data-tool="pool">
+                    <img src="assets/POOL.png"><span>PILETA</span>
+                </div>
+                <div class="tool-item ${this.selectedTool==='peace'?'selected':''}" data-tool="peace">
+                    <img src="assets/PEACE.PNG"><span>PEACE</span>
+                </div>
+                <div class="tool-item ${this.selectedTool==='vaca1'?'selected':''}" data-tool="vaca1">
+                    <img src="assets/VACA1.png"><span>VACA</span>
+                </div>
+                <div class="tool-item ${this.selectedTool==='ufo1'?'selected':''}" data-tool="ufo1">
+                    <img src="assets/ufo1.png"><span>UFO</span>
+                </div>
+            </div>
+            <p style="font-size:7px; margin-top:20px; color:#888;">HAZ CLIC EN EL LIENZO PARA COLOCAR O SELECCIONAR</p>
+        `;
+    }
+
+    updateToolSelectionUI() {
+        const items = document.querySelectorAll('.tool-item');
+        items.forEach(i => {
+            if (i.dataset.tool === this.selectedTool) i.classList.add('selected');
+            else i.classList.remove('selected');
         });
     }
 
@@ -536,22 +583,33 @@ class LevelEditorScene extends Phaser.Scene {
         if (this.selectedObject) this.selectedObject.clearTint();
         this.selectedObject = obj;
         this.selectedObject.setTint(0x00ff00);
-        this.showProperties(obj);
+        this.showPropertyPanel(obj);
     }
 
-    showProperties(obj) {
+    showPropertyPanel(obj) {
+        const mainContent = document.getElementById('sidebar-main-content');
+        if (!mainContent) return;
+
         const cfg = obj.getData('config');
-        this.propPanel.style.display = 'block';
-        this.propPanel.innerHTML = `
-            <div>OBJECT: ${obj.getData('texture').toUpperCase()}</div>
-            <label>SCALE X: <span id="val-sx">${obj.scaleX.toFixed(2)}</span></label>
-            <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleX}" id="in-sx">
-            <label>SCALE Y: <span id="val-sy">${obj.scaleY.toFixed(2)}</span></label>
-            <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleY}" id="in-sy">
-            <label>VELOCITY Y: <span id="val-vy">${cfg.velocityY}</span></label>
-            <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="in-vy">
-            <button class="editor-btn" id="btn-preview">${this.previewActive ? 'STOP PREVIEW' : 'PREVIEW MOTION'}</button>
-            <button class="editor-btn" style="background:#f00" id="btn-delete">DELETE</button>
+        const tex = obj.getData('texture').toUpperCase();
+
+        mainContent.innerHTML = `
+            <div class="sidebar-title">Propiedades</div>
+            <div style="font-size:8px; margin-bottom:10px; color:#ff69b4;">TIPO: ${tex}</div>
+            
+            <div class="property-controls">
+                <label>ESCALA X: <span id="val-sx">${obj.scaleX.toFixed(2)}</span></label>
+                <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleX}" id="in-sx">
+                
+                <label>ESCALA Y: <span id="val-sy">${obj.scaleY.toFixed(2)}</span></label>
+                <input type="range" min="0.1" max="3" step="0.1" value="${obj.scaleY}" id="in-sy">
+                
+                <label>VELOCIDAD Y: <span id="val-vy">${cfg.velocityY}</span></label>
+                <input type="range" min="-10" max="10" step="1" value="${cfg.velocityY}" id="in-vy">
+            </div>
+
+            <button class="sidebar-btn secondary" style="margin-top:20px;" id="btn-back-tools">VOLVER A HERRAMIENTAS</button>
+            <button class="sidebar-btn" style="background:#f00; margin-top:10px;" id="btn-delete">ELIMINAR OBJETO</button>
         `;
 
         const inSx = document.getElementById('in-sx');
@@ -561,19 +619,10 @@ class LevelEditorScene extends Phaser.Scene {
         inSx.oninput = () => { obj.scaleX = parseFloat(inSx.value); cfg.scaleX = obj.scaleX; document.getElementById('val-sx').innerText = obj.scaleX; };
         inSy.oninput = () => { obj.scaleY = parseFloat(inSy.value); cfg.scaleY = obj.scaleY; document.getElementById('val-sy').innerText = obj.scaleY; };
         inVy.oninput = () => { cfg.velocityY = parseInt(inVy.value); document.getElementById('val-vy').innerText = cfg.velocityY; };
-        
-        document.getElementById('btn-preview').onclick = () => {
-            this.previewActive = !this.previewActive;
-            document.getElementById('btn-preview').innerText = this.previewActive ? 'STOP PREVIEW' : 'PREVIEW MOTION';
-        };
-        document.getElementById('btn-delete').onclick = () => {
-            obj.destroy();
-            this.propPanel.style.display = 'none';
-            this.selectedObject = null;
-        };
     }
 
     spawnEditorObject(x, y, key) {
+        // Garantizar que la key es válida segun cargado en preload
         const obj = this.add.sprite(x, y, key).setInteractive({ draggable: true });
         obj.setData('texture', key);
         obj.setData('baseY', y);
@@ -586,6 +635,7 @@ class LevelEditorScene extends Phaser.Scene {
         obj.setData('config', { scaleX: initialScale, scaleY: initialScale, velocityY: 0 });
 
         obj.on('drag', (pointer, dragX, dragY) => {
+            if (dragX < 250) return; // No soltar dentro del sidebar
             obj.x = dragX;
             obj.y = dragY;
             obj.setData('baseY', dragY);
@@ -595,6 +645,14 @@ class LevelEditorScene extends Phaser.Scene {
         this.selectObject(obj);
     }
 
+    deleteSelected() {
+        if (this.selectedObject) {
+            this.selectedObject.destroy();
+            this.selectedObject = null;
+            this.showToolsGrid();
+        }
+    }
+
     exportLevel() {
         const data = this.placedObjects.getChildren().map(o => ({
             x: o.x, y: o.y, texture: o.getData('texture'), config: o.getData('config')
@@ -602,7 +660,7 @@ class LevelEditorScene extends Phaser.Scene {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = 'salta_charly_level.json';
+        a.download = 'charly_layout.json';
         a.click();
     }
 
@@ -611,28 +669,25 @@ class LevelEditorScene extends Phaser.Scene {
             x: o.x, y: o.y, texture: o.getData('texture'), config: o.getData('config')
         }));
         localStorage.setItem('level_test', JSON.stringify(data));
-        this.propPanel.style.display = 'none';
         this.scene.start('GameScene', { startY: this.cameras.main.scrollY });
     }
 
     update() {
         if (this.cursors.up.isDown) this.cameras.main.scrollY -= 15;
         if (this.cursors.down.isDown) this.cameras.main.scrollY += 15;
-        
         this.meterText.setText(Math.floor(this.cameras.main.scrollY * 0.1) + 'm');
         
-        if (this.previewActive) {
-            this.placedObjects.getChildren().forEach(o => {
-                const vy = o.getData('config').velocityY;
-                if (vy !== 0) {
-                    o.y += vy;
-                    const baseY = o.getData('baseY');
-                    if (Math.abs(o.y - baseY) > 300) o.y = baseY;
-                }
-            });
-        }
+        this.placedObjects.getChildren().forEach(o => {
+            const vy = o.getData('config').velocityY;
+            if (vy !== 0) {
+                o.y += vy;
+                const baseY = o.getData('baseY');
+                if (Math.abs(o.y - baseY) > 300) o.y = baseY;
+            }
+        });
     }
 }
+
 
 
 

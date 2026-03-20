@@ -602,6 +602,10 @@ class LevelEditorScene extends Phaser.Scene {
             }
         });
 
+        // 3. ELIMINAR OBJETO (DELETE / BACKSPACE) (QoL Proactiva)
+        this.input.keyboard.on('keydown-DELETE', () => this.deleteSelected());
+        this.input.keyboard.on('keydown-BACKSPACE', () => this.deleteSelected());
+
         // 2. CLONACIÓN RÁPIDA (SPACE) (REQ 2)
         this.input.keyboard.on('keydown-SPACE', () => {
             if (this.selectedObject) {
@@ -806,6 +810,16 @@ class LevelEditorScene extends Phaser.Scene {
     clearSelectionFramework() {
         this.selectionGraphics.clear();
         this.selectionHandles.clear(true, true);
+    }
+
+    deleteSelected() {
+        if (this.selectedObject) {
+            this.selectedObject.destroy();
+            this.selectedObject = null;
+            this.clearSelectionFramework();
+            const panel = document.getElementById('editor-attr-panel');
+            if (panel) panel.style.display = 'none';
+        }
     }
 
     exportLevel() {
